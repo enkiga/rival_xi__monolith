@@ -1,0 +1,16 @@
+[project]
+name = "rivalxi_backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.19.2",
+    "apscheduler>=3.11.3",
+    "asyncpg>=0.31.0",
+    "fastapi[standard]>=0.141.1",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.15.0",
+    "python-slugify>=9.0.0",
+    "sqlalchemy[asyncio]>=2.0.52",
+]
