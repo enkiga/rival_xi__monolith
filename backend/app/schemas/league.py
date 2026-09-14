@@ -37,7 +37,6 @@ class LeagueCreate(BaseModel):
         min_length=3,
         max_length=100,
     )
-    fpl_entry_id: int = Field(gt=0)
 
     rules: LeagueRulesCreate
 
@@ -81,12 +80,6 @@ class LeagueDetailResponse(BaseModel):
     started_at: datetime | None
     rules: LeagueRulesResponse
     members: list[LeagueMemberResponse]
-
-class LeagueJoinRequest(BaseModel):
-    fpl_entry_id: int = Field(gt=0)
-
-class LeagueOwnerAction(BaseModel):
-    owner_fpl_entry_id: int = Field(gt=0)
 
 class LeagueStatusResponse(BaseModel):
     id: int
@@ -141,8 +134,6 @@ class LeagueRulesUpdate(BaseModel):
         return self
 
 class LeagueUpdate(BaseModel):
-    owner_fpl_entry_id: int = Field(gt=0)
-
     name: str | None = Field(
         default=None,
         min_length=3,

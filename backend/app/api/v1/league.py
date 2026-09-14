@@ -1,4 +1,6 @@
+from app.api.dependencies.auth import get_current_auth
 from app.db.session import get_db
+from app.integrations.fpl.client import FPLUpstreamError
 from app.schemas.gameweek import (
     LeagueGameweekResponse,
     LeagueGameweekSyncResponse,
@@ -7,13 +9,12 @@ from app.schemas.gameweek import (
 from app.schemas.league import (
     LeagueCreate,
     LeagueDetailResponse,
-    LeagueJoinRequest,
     LeagueMemberResponse,
-    LeagueOwnerAction,
     LeagueResponse,
     LeagueStatusResponse,
     LeagueUpdate,
 )
+from app.services.auth import AuthenticatedSession
 from app.services.fpl import CurrentGameweekNotFoundError
 from app.services.gameweek import (
     FutureGameweekError,
@@ -30,10 +31,9 @@ from app.services.gameweek import (
     sync_league_gameweek_as_owner,
 )
 from app.services.league import (
-    AlreadyLeagueMemberError,
     CannotManageOwnerError,
     DuplicateLeagueError,
-    FPLTeamNotFoundError,
+    FPLAccountRequiredError,
     InvalidMemberStatusError,
     LeagueAlreadyActiveError,
     LeagueEditingClosedError,
@@ -45,9 +45,12 @@ from app.services.league import (
     approve_league_member,
     create_league,
     get_league,
-    join_league,
     reject_league_member,
     update_league,
+)
+from app.services.league_access import (
+    LeagueMembershipPendingError,
+    LeagueMembershipRequiredError,
 )
 from fastapi import (
     APIRouter,
@@ -61,6 +64,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 router = APIRouter()
 
 
+def _raise_league_access_error(
+    exc: Exception,
+) -> None:
+    if isinstance(exc, LeagueMembershipPendingError):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your league membership is awaiting approval",
+        )
+
+    if isinstance(exc, LeagueMembershipRequiredError):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Approved league membership is required",
+        )
+
+    raise exc
+
+
 @router.post(
     "",
     response_model=LeagueResponse,
@@ -68,19 +89,22 @@ router = APIRouter()
 )
 async def create_league_endpoint(
     data: LeagueCreate,
+    auth: AuthenticatedSession = Depends(get_current_auth),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> LeagueResponse:
     try:
         return await create_league(
             db=db,
             data=data,
+            user_id=auth.user_id,
         )
 
-    except FPLTeamNotFoundError:
+    except FPLAccountRequiredError:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="FPL team not found",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Link an FPL account before creating or joining a league",
         )
+
     except DuplicateLeagueError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -94,12 +118,14 @@ async def create_league_endpoint(
 )
 async def get_league_endpoint(
     slug: str,
+    auth: AuthenticatedSession = Depends(get_current_auth),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> LeagueDetailResponse:
     try:
         return await get_league(
             db=db,
             slug=slug,
+            user_id=auth.user_id,
         )
 
     except LeagueNotFoundError:
@@ -108,47 +134,13 @@ async def get_league_endpoint(
             detail="League not found",
         )
 
+    except (
+        LeagueMembershipPendingError,
+        LeagueMembershipRequiredError,
+    ) as exc:
+        _raise_league_access_error(exc)
 
-@router.post(
-    "/{slug}/members",
-    response_model=LeagueMemberResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def join_league_endpoint(
-    slug: str,
-    data: LeagueJoinRequest,
-    db: AsyncSession = Depends(get_db),  # noqa: B008
-) -> LeagueMemberResponse:
-    try:
-        return await join_league(
-            db=db,
-            slug=slug,
-            data=data,
-        )
-
-    except LeagueNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="League not found",
-        )
-
-    except FPLTeamNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="FPL team not found",
-        )
-
-    except LeagueFullError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="League has reached the 20-member limit",
-        )
-
-    except AlreadyLeagueMemberError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="FPL team is already in this league",
-        )
+        raise
 
 
 @router.patch(
@@ -158,7 +150,7 @@ async def join_league_endpoint(
 async def approve_member_endpoint(
     slug: str,
     member_id: int,
-    data: LeagueOwnerAction,
+    auth: AuthenticatedSession = Depends(get_current_auth),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> LeagueMemberResponse:
     try:
@@ -166,7 +158,7 @@ async def approve_member_endpoint(
             db=db,
             slug=slug,
             member_id=member_id,
-            owner_fpl_entry_id=(data.owner_fpl_entry_id),
+            owner_user_id=auth.user_id,
         )
 
     except LeagueNotFoundError:
@@ -202,9 +194,12 @@ async def approve_member_endpoint(
             detail="Member cannot be approved",
         )
 
-    except CurrentGameweekNotFoundError:
+    except (
+        CurrentGameweekNotFoundError,
+        FPLUpstreamError,
+    ):
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Unable to determine the current FPL gameweek",
         )
 
@@ -216,7 +211,7 @@ async def approve_member_endpoint(
 async def reject_member_endpoint(
     slug: str,
     member_id: int,
-    data: LeagueOwnerAction,
+    auth: AuthenticatedSession = Depends(get_current_auth),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> LeagueMemberResponse:
     try:
@@ -224,7 +219,7 @@ async def reject_member_endpoint(
             db=db,
             slug=slug,
             member_id=member_id,
-            owner_fpl_entry_id=(data.owner_fpl_entry_id),
+            owner_user_id=auth.user_id,
         )
 
     except LeagueNotFoundError:
@@ -261,14 +256,14 @@ async def reject_member_endpoint(
 )
 async def activate_league_endpoint(
     slug: str,
-    data: LeagueOwnerAction,
+    auth: AuthenticatedSession = Depends(get_current_auth),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> LeagueStatusResponse:
     try:
         return await activate_league(
             db=db,
             slug=slug,
-            owner_fpl_entry_id=(data.owner_fpl_entry_id),
+            owner_user_id=auth.user_id,
         )
 
     except LeagueNotFoundError:
@@ -297,6 +292,7 @@ async def activate_league_endpoint(
 async def update_league_endpoint(
     slug: str,
     data: LeagueUpdate,
+    auth: AuthenticatedSession = Depends(get_current_auth),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> LeagueDetailResponse:
     try:
@@ -304,6 +300,7 @@ async def update_league_endpoint(
             db=db,
             slug=slug,
             data=data,
+            owner_user_id=auth.user_id,
         )
 
     except LeagueNotFoundError:
@@ -338,7 +335,7 @@ async def update_league_endpoint(
 async def sync_gameweek_endpoint(
     slug: str,
     gameweek: int,
-    data: LeagueOwnerAction,
+    auth: AuthenticatedSession = Depends(get_current_auth),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> LeagueGameweekSyncResponse:
     if gameweek < 1 or gameweek > 38:
@@ -352,7 +349,7 @@ async def sync_gameweek_endpoint(
             db=db,
             slug=slug,
             gameweek=gameweek,
-            owner_fpl_entry_id=(data.owner_fpl_entry_id),
+            owner_user_id=auth.user_id,
         )
 
     except GameweekLeagueNotFoundError:
@@ -397,6 +394,12 @@ async def sync_gameweek_endpoint(
             detail="Unable to retrieve complete FPL gameweek data",
         )
 
+    except FPLUpstreamError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="FPL service is temporarily unavailable",
+        )
+
 
 @router.get(
     "/{slug}/gameweeks/{gameweek}",
@@ -408,6 +411,7 @@ async def get_league_gameweek_endpoint(
         ge=1,
         le=38,
     ),
+    auth: AuthenticatedSession = Depends(get_current_auth),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> LeagueGameweekResponse:
     try:
@@ -415,6 +419,7 @@ async def get_league_gameweek_endpoint(
             db=db,
             slug=slug,
             gameweek=gameweek,
+            user_id=auth.user_id,
         )
 
     except GameweekLeagueNotFoundError:
@@ -423,16 +428,42 @@ async def get_league_gameweek_endpoint(
             detail="League not found",
         )
 
+    except (
+        LeagueMembershipPendingError,
+        LeagueMembershipRequiredError,
+    ) as exc:
+        _raise_league_access_error(exc)
+
+        raise
+
     except GameweekBeforeLeagueStartError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Gameweek is before the league start gameweek",
         )
 
+    except FutureGameweekError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Gameweek has not started yet",
+        )
+
+    except GameweekEventNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="FPL gameweek not found",
+        )
+
     except GameweekResultsNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Gameweek results are not available",
+        )
+
+    except FPLUpstreamError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="FPL service is temporarily unavailable",
         )
 
 
@@ -447,6 +478,7 @@ async def get_member_gameweek_endpoint(
         ge=1,
         le=38,
     ),
+    auth: AuthenticatedSession = Depends(get_current_auth),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> MemberGameweekResponse:
     try:
@@ -455,12 +487,33 @@ async def get_member_gameweek_endpoint(
             slug=slug,
             gameweek=gameweek,
             member_id=member_id,
+            user_id=auth.user_id,
         )
 
     except GameweekLeagueNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="League not found",
+        )
+
+    except (
+        LeagueMembershipPendingError,
+        LeagueMembershipRequiredError,
+    ) as exc:
+        _raise_league_access_error(exc)
+
+        raise
+
+    except FutureGameweekError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Gameweek has not started yet",
+        )
+
+    except GameweekEventNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="FPL gameweek not found",
         )
 
     except GameweekResultsNotFoundError:
@@ -473,4 +526,16 @@ async def get_member_gameweek_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Member has no result for this gameweek",
+        )
+
+    except GameweekBeforeLeagueStartError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Gameweek is before the league start gameweek",
+        )
+
+    except FPLUpstreamError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="FPL service is temporarily unavailable",
         )

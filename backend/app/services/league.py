@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from app.models.fpl_account import FPLAccount
 from app.models.league import League, LeagueStatus
 from app.models.league_member import (
     LeagueMember,
@@ -10,7 +11,6 @@ from app.models.league_rules import LeagueRules
 from app.schemas.league import (
     LeagueCreate,
     LeagueDetailResponse,
-    LeagueJoinRequest,
     LeagueMemberResponse,
     LeagueResponse,
     LeagueRulesResponse,
@@ -18,8 +18,16 @@ from app.schemas.league import (
     LeagueUpdate,
 )
 from app.services.fpl import (
-    find_fpl_manager,
     get_current_gameweek,
+)
+from app.services.league_access import (
+    require_approved_league_member,
+)
+from app.services.notification import (
+    deliver_notification_email,
+    notify_league_rules_changed,
+    notify_membership_approved,
+    notify_membership_rejected,
 )
 from slugify import slugify
 from sqlalchemy import func, select, update
@@ -28,15 +36,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 MAX_LEAGUE_MEMBERS = 20
 
-class FPLTeamNotFoundError(Exception):
+
+class FPLAccountRequiredError(Exception):
     pass
 
 
 class DuplicateLeagueError(Exception):
     pass
 
+
 class LeagueNotFoundError(Exception):
     pass
+
 
 class LeagueRulesNotFoundError(Exception):
     pass
@@ -65,21 +76,21 @@ class InvalidMemberStatusError(Exception):
 class CannotManageOwnerError(Exception):
     pass
 
+
 class LeagueAlreadyActiveError(Exception):
     pass
+
 
 class LeagueEditingClosedError(Exception):
     pass
 
+
 async def create_league(
     db: AsyncSession,
     data: LeagueCreate,
+    *,
+    user_id: int,
 ) -> LeagueResponse:
-    manager = await find_fpl_manager(data.fpl_entry_id)
-
-    if manager is None:
-        raise FPLTeamNotFoundError
-
     league_slug = slugify(data.name)
 
     league = League(
@@ -91,6 +102,8 @@ async def create_league(
 
     try:
         async with db.begin():
+            account = await _get_user_fpl_account(db, user_id)
+
             existing_league = await db.scalar(
                 select(League).where(
                     League.slug == league_slug,
@@ -107,24 +120,18 @@ async def create_league(
             rules = LeagueRules(
                 league_id=league.id,
                 start_gameweek=data.rules.start_gameweek,
-                include_transfer_deductions=(
-                    data.rules.include_transfer_deductions
-                ),
-                allowed_chips=[
-                    chip.value
-                    for chip in data.rules.allowed_chips
-                ],
+                include_transfer_deductions=(data.rules.include_transfer_deductions),
+                allowed_chips=[chip.value for chip in data.rules.allowed_chips],
             )
 
             owner = LeagueMember(
                 league_id=league.id,
-                fpl_entry_id=data.fpl_entry_id,
+                user_id=user_id,
+                fpl_entry_id=account.fpl_entry_id,
                 role=LeagueMemberRole.OWNER,
                 status=LeagueMemberStatus.APPROVED,
                 approved_at=approved_at,
-                scoring_start_gameweek=(
-                    data.rules.start_gameweek
-                ),
+                scoring_start_gameweek=(data.rules.start_gameweek),
             )
 
             db.add(rules)
@@ -149,14 +156,17 @@ async def create_league(
         rules=LeagueRulesResponse(
             start_gameweek=rules.start_gameweek,
             include_transfer_deductions=rules.include_transfer_deductions,
-            allowed_chips=rules.allowed_chips
+            allowed_chips=rules.allowed_chips,
         ),
         owner=_member_response(owner),
     )
 
+
 async def get_league(
     db: AsyncSession,
     slug: str,
+    *,
+    user_id: int,
 ) -> LeagueDetailResponse:
     league = await db.scalar(
         select(League).where(
@@ -167,12 +177,18 @@ async def get_league(
     if league is None:
         raise LeagueNotFoundError
 
+    viewer = await require_approved_league_member(
+        db=db,
+        league_id=league.id,
+        user_id=user_id,
+    )
+
     rules = await _get_league_rules(
         db=db,
         league_id=league.id,
     )
 
-    members_result = await db.execute(
+    members_query = (
         select(LeagueMember)
         .where(
             LeagueMember.league_id == league.id,
@@ -181,6 +197,14 @@ async def get_league(
             LeagueMember.joined_at.asc(),
         )
     )
+
+    if viewer.role != LeagueMemberRole.OWNER:
+        members_query = members_query.where(
+            LeagueMember.status
+            == LeagueMemberStatus.APPROVED,
+        )
+
+    members_result = await db.execute(members_query)
 
     members = members_result.scalars().all()
 
@@ -193,31 +217,26 @@ async def get_league(
         started_at=league.started_at,
         rules=LeagueRulesResponse(
             start_gameweek=rules.start_gameweek,
-            include_transfer_deductions=(
-                rules.include_transfer_deductions
-            ),
+            include_transfer_deductions=(rules.include_transfer_deductions),
             allowed_chips=rules.allowed_chips,
         ),
-        members=[
-            _member_response(member)
-            for member in members
-        ],
+        members=[_member_response(member) for member in members],
     )
+
 
 async def _get_league_for_update(
     db: AsyncSession,
     slug: str,
 ) -> League:
     league = await db.scalar(
-        select(League)
-        .where(League.slug == slug)
-        .with_for_update()
+        select(League).where(League.slug == slug).with_for_update()
     )
 
     if league is None:
         raise LeagueNotFoundError
 
     return league
+
 
 async def _get_league_rules(
     db: AsyncSession,
@@ -234,20 +253,19 @@ async def _get_league_rules(
 
     return rules
 
+
 async def _require_owner(
     db: AsyncSession,
+    *,
     league_id: int,
-    owner_fpl_entry_id: int,
+    user_id: int,
 ) -> LeagueMember:
     owner = await db.scalar(
         select(LeagueMember).where(
             LeagueMember.league_id == league_id,
-            LeagueMember.fpl_entry_id
-            == owner_fpl_entry_id,
-            LeagueMember.role
-            == LeagueMemberRole.OWNER,
-            LeagueMember.status
-            == LeagueMemberStatus.APPROVED,
+            LeagueMember.user_id == user_id,
+            LeagueMember.role == LeagueMemberRole.OWNER,
+            LeagueMember.status == LeagueMemberStatus.APPROVED,
         )
     )
 
@@ -255,6 +273,7 @@ async def _require_owner(
         raise LeagueOwnerRequiredError
 
     return owner
+
 
 def _member_response(
     member: LeagueMember,
@@ -266,120 +285,92 @@ def _member_response(
         status=member.status,
         joined_at=member.joined_at,
         approved_at=member.approved_at,
-        scoring_start_gameweek=(
-            member.scoring_start_gameweek
-        ),
+        scoring_start_gameweek=(member.scoring_start_gameweek),
     )
 
-async def join_league(
+
+async def _get_user_fpl_account(
     db: AsyncSession,
-    slug: str,
-    data: LeagueJoinRequest,
-) -> LeagueMemberResponse:
-    manager = await find_fpl_manager(
-        data.fpl_entry_id
+    user_id: int,
+) -> FPLAccount:
+    account = await db.scalar(
+        select(FPLAccount).where(
+            FPLAccount.user_id == user_id,
+        )
     )
 
-    if manager is None:
-        raise FPLTeamNotFoundError
+    if account is None:
+        raise FPLAccountRequiredError
 
-    try:
-        async with db.begin():
-            league = await _get_league_for_update(
-                db=db,
-                slug=slug,
-            )
+    return account
 
-            existing_member = await db.scalar(
-                select(LeagueMember).where(
-                    LeagueMember.league_id
-                    == league.id,
-                    LeagueMember.fpl_entry_id
-                    == data.fpl_entry_id,
-                )
-            )
 
-            if existing_member is not None:
-                if (
-                    existing_member.status
-                    == LeagueMemberStatus.REJECTED
-                ):
-                    approved_count = await db.scalar(
-                        select(
-                            func.count(
-                                LeagueMember.id
-                            )
-                        ).where(
-                            LeagueMember.league_id
-                            == league.id,
-                            LeagueMember.status
-                            == LeagueMemberStatus.APPROVED,
-                        )
-                    )
+async def create_or_reopen_league_membership(
+    db: AsyncSession,
+    *,
+    league: League,
+    user_id: int,
+    fpl_entry_id: int,
+) -> LeagueMember:
+    existing = await db.scalar(
+        select(LeagueMember)
+        .where(
+            LeagueMember.league_id == league.id,
+            LeagueMember.user_id == user_id,
+        )
+        .with_for_update()
+    )
 
-                    if (
-                        approved_count
-                        >= MAX_LEAGUE_MEMBERS
-                    ):
-                        raise LeagueFullError
+    approved_count = await db.scalar(
+        select(func.count(LeagueMember.id)).where(
+            LeagueMember.league_id == league.id,
+            LeagueMember.status == LeagueMemberStatus.APPROVED,
+        )
+    )
 
-                    existing_member.status = (
-                        LeagueMemberStatus.PENDING
-                    )
-                    existing_member.approved_at = None
-                    existing_member.scoring_start_gameweek = (
-                        None
-                    )
-                    existing_member.joined_at = (
-                        datetime.now(timezone.utc)
-                    )
+    if approved_count is not None and approved_count >= MAX_LEAGUE_MEMBERS:
+        raise LeagueFullError
 
-                    await db.flush()
-                    await db.refresh(existing_member)
+    if existing is not None:
+        if existing.role == LeagueMemberRole.OWNER:
+            raise AlreadyLeagueMemberError
 
-                    return _member_response(
-                        existing_member
-                    )
-
-                raise AlreadyLeagueMemberError
-
-            approved_count = await db.scalar(
-                select(
-                    func.count(LeagueMember.id)
-                ).where(
-                    LeagueMember.league_id == league.id,
-                    LeagueMember.status
-                    == LeagueMemberStatus.APPROVED,
-                )
-            )
-
-            if approved_count >= MAX_LEAGUE_MEMBERS:
-                raise LeagueFullError
-
-            member = LeagueMember(
-                league_id=league.id,
-                fpl_entry_id=data.fpl_entry_id,
-                role=LeagueMemberRole.MEMBER,
-                status=LeagueMemberStatus.PENDING,
-            )
-
-            db.add(member)
+        if existing.status == LeagueMemberStatus.REJECTED:
+            existing.status = LeagueMemberStatus.PENDING
+            existing.fpl_entry_id = fpl_entry_id
+            existing.approved_at = None
+            existing.scoring_start_gameweek = None
+            existing.joined_at = datetime.now(timezone.utc)
 
             await db.flush()
-            await db.refresh(member)
 
-    except IntegrityError as exc:
-        raise AlreadyLeagueMemberError from exc
+            return existing
 
-    return _member_response(member)
+        raise AlreadyLeagueMemberError
+
+    member = LeagueMember(
+        league_id=league.id,
+        user_id=user_id,
+        fpl_entry_id=fpl_entry_id,
+        role=LeagueMemberRole.MEMBER,
+        status=LeagueMemberStatus.PENDING,
+    )
+
+    db.add(member)
+
+    await db.flush()
+
+    return member
+
 
 async def approve_league_member(
     db: AsyncSession,
     slug: str,
     member_id: int,
-    owner_fpl_entry_id: int,
+    owner_user_id: int,
 ) -> LeagueMemberResponse:
     current_gameweek = await get_current_gameweek()
+    notification_id: int | None = None
 
     async with db.begin():
         league = await _get_league_for_update(
@@ -390,7 +381,7 @@ async def approve_league_member(
         await _require_owner(
             db=db,
             league_id=league.id,
-            owner_fpl_entry_id=owner_fpl_entry_id,
+            user_id=owner_user_id,
         )
 
         rules = await _get_league_rules(
@@ -411,19 +402,13 @@ async def approve_league_member(
         if member.role == LeagueMemberRole.OWNER:
             raise CannotManageOwnerError
 
-        if (
-            member.status
-            != LeagueMemberStatus.PENDING
-        ):
+        if member.status != LeagueMemberStatus.PENDING:
             raise InvalidMemberStatusError
 
         approved_count = await db.scalar(
-            select(
-                func.count(LeagueMember.id)
-            ).where(
+            select(func.count(LeagueMember.id)).where(
                 LeagueMember.league_id == league.id,
-                LeagueMember.status
-                == LeagueMemberStatus.APPROVED,
+                LeagueMember.status == LeagueMemberStatus.APPROVED,
             )
         )
 
@@ -431,9 +416,7 @@ async def approve_league_member(
             raise LeagueFullError
 
         if league.status == LeagueStatus.DRAFT:
-            scoring_start_gameweek = (
-                rules.start_gameweek
-            )
+            scoring_start_gameweek = rules.start_gameweek
 
         else:
             scoring_start_gameweek = max(
@@ -442,24 +425,36 @@ async def approve_league_member(
             )
 
         member.status = LeagueMemberStatus.APPROVED
-        member.approved_at = datetime.now(
-            timezone.utc
-        )
-        member.scoring_start_gameweek = (
-            scoring_start_gameweek
-        )
+        member.approved_at = datetime.now(timezone.utc)
+        member.scoring_start_gameweek = scoring_start_gameweek
+
+        if member.user_id is not None:
+            notification = await notify_membership_approved(
+                db=db,
+                user_id=member.user_id,
+                league_id=league.id,
+                league_slug=league.slug,
+                league_name=league.name,
+            )
+            notification_id = notification.id
 
         await db.flush()
         await db.refresh(member)
 
+    if notification_id is not None:
+        await deliver_notification_email(notification_id)
+
     return _member_response(member)
+
 
 async def reject_league_member(
     db: AsyncSession,
     slug: str,
     member_id: int,
-    owner_fpl_entry_id: int,
+    owner_user_id: int,
 ) -> LeagueMemberResponse:
+    notification_id: int | None = None
+
     async with db.begin():
         league = await _get_league_for_update(
             db=db,
@@ -469,7 +464,7 @@ async def reject_league_member(
         await _require_owner(
             db=db,
             league_id=league.id,
-            owner_fpl_entry_id=owner_fpl_entry_id,
+            user_id=owner_user_id,
         )
 
         member = await db.scalar(
@@ -485,25 +480,36 @@ async def reject_league_member(
         if member.role == LeagueMemberRole.OWNER:
             raise CannotManageOwnerError
 
-        if (
-            member.status
-            != LeagueMemberStatus.PENDING
-        ):
+        if member.status != LeagueMemberStatus.PENDING:
             raise InvalidMemberStatusError
 
         member.status = LeagueMemberStatus.REJECTED
         member.approved_at = None
         member.scoring_start_gameweek = None
 
+        if member.user_id is not None:
+            notification = await notify_membership_rejected(
+                db=db,
+                user_id=member.user_id,
+                league_id=league.id,
+                league_slug=league.slug,
+                league_name=league.name,
+            )
+            notification_id = notification.id
+
         await db.flush()
         await db.refresh(member)
 
+    if notification_id is not None:
+        await deliver_notification_email(notification_id)
+
     return _member_response(member)
+
 
 async def activate_league(
     db: AsyncSession,
     slug: str,
-    owner_fpl_entry_id: int,
+    owner_user_id: int,
 ) -> LeagueStatusResponse:
     async with db.begin():
         league = await _get_league_for_update(
@@ -514,16 +520,14 @@ async def activate_league(
         await _require_owner(
             db=db,
             league_id=league.id,
-            owner_fpl_entry_id=owner_fpl_entry_id,
+            user_id=owner_user_id,
         )
 
         if league.status == LeagueStatus.ACTIVE:
             raise LeagueAlreadyActiveError
 
         league.status = LeagueStatus.ACTIVE
-        league.started_at = datetime.now(
-            timezone.utc
-        )
+        league.started_at = datetime.now(timezone.utc)
 
         await db.flush()
         await db.refresh(league)
@@ -536,10 +540,13 @@ async def activate_league(
         started_at=league.started_at,
     )
 
+
 async def update_league(
     db: AsyncSession,
     slug: str,
     data: LeagueUpdate,
+    *,
+    owner_user_id: int,
 ) -> LeagueDetailResponse:
     try:
         async with db.begin():
@@ -551,9 +558,7 @@ async def update_league(
             await _require_owner(
                 db=db,
                 league_id=league.id,
-                owner_fpl_entry_id=(
-                    data.owner_fpl_entry_id
-                ),
+                user_id=owner_user_id,
             )
 
             if league.status != LeagueStatus.DRAFT:
@@ -563,6 +568,7 @@ async def update_league(
                 db=db,
                 league_id=league.id,
             )
+            changed_rule_fields: list[str] = []
 
             # Update league name and therefore its public slug.
             if data.name is not None:
@@ -584,53 +590,70 @@ async def update_league(
 
             # Update competition rules.
             if data.rules is not None:
-                old_start_gameweek = (
-                    rules.start_gameweek
-                )
+                old_start_gameweek = rules.start_gameweek
 
                 if (
-                    data.rules.start_gameweek
-                    is not None
+                    data.rules.start_gameweek is not None
+                    and data.rules.start_gameweek
+                    != rules.start_gameweek
                 ):
-                    rules.start_gameweek = (
-                        data.rules.start_gameweek
+                    changed_rule_fields.append("start_gameweek")
+                    rules.start_gameweek = data.rules.start_gameweek
+
+                if (
+                    data.rules.include_transfer_deductions is not None
+                    and data.rules.include_transfer_deductions
+                    != rules.include_transfer_deductions
+                ):
+                    changed_rule_fields.append(
+                        "include_transfer_deductions"
                     )
-
-                if (
-                    data.rules.include_transfer_deductions
-                    is not None
-                ):
                     rules.include_transfer_deductions = (
-                        data.rules
-                        .include_transfer_deductions
+                        data.rules.include_transfer_deductions
                     )
 
                 if data.rules.allowed_chips is not None:
-                    rules.allowed_chips = [
-                        chip.value
-                        for chip
-                        in data.rules.allowed_chips
+                    allowed_chips = [
+                        chip.value for chip in data.rules.allowed_chips
                     ]
+
+                    if allowed_chips != rules.allowed_chips:
+                        changed_rule_fields.append("allowed_chips")
+                        rules.allowed_chips = allowed_chips
 
                 # Everyone approved during DRAFT starts
                 # from the league's configured start GW.
-                if (
-                    rules.start_gameweek
-                    != old_start_gameweek
-                ):
+                if rules.start_gameweek != old_start_gameweek:
                     await db.execute(
                         update(LeagueMember)
                         .where(
-                            LeagueMember.league_id
-                            == league.id,
-                            LeagueMember.status
-                            == LeagueMemberStatus.APPROVED,
+                            LeagueMember.league_id == league.id,
+                            LeagueMember.status == LeagueMemberStatus.APPROVED,
                         )
-                        .values(
-                            scoring_start_gameweek=(
-                                rules.start_gameweek
-                            )
-                        )
+                        .values(scoring_start_gameweek=(rules.start_gameweek))
+                    )
+
+            if changed_rule_fields:
+                recipient_result = await db.execute(
+                    select(LeagueMember.user_id).where(
+                        LeagueMember.league_id == league.id,
+                        LeagueMember.status
+                        == LeagueMemberStatus.APPROVED,
+                        LeagueMember.user_id.is_not(None),
+                        LeagueMember.user_id != owner_user_id,
+                    )
+                )
+
+                recipient_user_ids = recipient_result.scalars().all()
+
+                for recipient_user_id in recipient_user_ids:
+                    await notify_league_rules_changed(
+                        db=db,
+                        user_id=recipient_user_id,
+                        league_id=league.id,
+                        league_slug=league.slug,
+                        league_name=league.name,
+                        changed_fields=changed_rule_fields,
                     )
 
             await db.flush()
@@ -641,8 +664,7 @@ async def update_league(
             members_result = await db.execute(
                 select(LeagueMember)
                 .where(
-                    LeagueMember.league_id
-                    == league.id,
+                    LeagueMember.league_id == league.id,
                 )
                 .order_by(
                     LeagueMember.joined_at.asc(),
@@ -663,13 +685,8 @@ async def update_league(
         started_at=league.started_at,
         rules=LeagueRulesResponse(
             start_gameweek=rules.start_gameweek,
-            include_transfer_deductions=(
-                rules.include_transfer_deductions
-            ),
+            include_transfer_deductions=(rules.include_transfer_deductions),
             allowed_chips=rules.allowed_chips,
         ),
-        members=[
-            _member_response(member)
-            for member in members
-        ],
+        members=[_member_response(member) for member in members],
     )
