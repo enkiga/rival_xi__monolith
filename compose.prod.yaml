@@ -1,0 +1,13 @@
+name: rivalxi-prod
+
+services:
+  backend:
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    ports:
+      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8001}:8000"
+
+  redis:
+    restart: unless-stopped
