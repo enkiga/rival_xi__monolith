@@ -53,4 +53,8 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_league_members_fpl_entry_id'), table_name='league_members')
     op.drop_table('league_members')
     op.drop_table('leagues')
+    # PostgreSQL enums outlive their tables unless explicitly removed.
+    op.execute('DROP TYPE league_member_status')
+    op.execute('DROP TYPE league_member_role')
+    op.execute('DROP TYPE league_status')
     # ### end Alembic commands ###
