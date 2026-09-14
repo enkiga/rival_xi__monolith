@@ -17,10 +17,19 @@ configure the full stack, including Redis. Run Compose commands from the root.
 
 ## Development
 
-Create your local configuration:
+Run Docker Compose from the **repository root**, not from `backend/`. If your
+terminal is currently in `backend/`, move up first:
 
 ```sh
-cp .env.example .env
+cd ..
+```
+
+The development environment file is now **root `.env`**, not `.env.dev` or
+`backend/.env`. If your existing backend configuration was migrated, root `.env`
+already exists. Only create it from the template if it is missing:
+
+```sh
+test -f .env || cp .env.example .env
 ```
 
 Edit the root `.env` and set `DATABASE_URL` to a real database using the
@@ -45,6 +54,18 @@ docker compose --env-file .env -f compose.yaml -f compose.dev.yaml build --pull
 docker compose --env-file .env -f compose.yaml -f compose.dev.yaml run --rm --no-deps backend alembic upgrade head
 docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --wait
 ```
+
+To stay in `backend/` instead, prefix every root file path with `../`:
+
+```sh
+docker compose --env-file ../.env -f ../compose.yaml -f ../compose.dev.yaml build --pull
+docker compose --env-file ../.env -f ../compose.yaml -f ../compose.dev.yaml run --rm --no-deps backend alembic upgrade head
+docker compose --env-file ../.env -f ../compose.yaml -f ../compose.dev.yaml up -d --wait
+```
+
+An error such as `couldn't find env file: .../backend/.env.dev` means the command
+uses the old filename and resolves it from the backend directory. Use one of the
+command sets above; do not create another environment file inside `backend/`.
 
 - API documentation: http://localhost:8000/docs
 - Application health: http://localhost:8000/api/v1/health
