@@ -1,9 +1,15 @@
 from datetime import datetime, timezone
 
+from app.core.cache import (
+    get_cached_model,
+    set_cached_model,
+)
 from app.integrations.fpl.client import (
     get_bootstrap_static,
+    get_cached_bootstrap_static,
     get_event_live,
 )
+from app.models.fpl_account import FPLAccount
 from app.models.gameweek_pick import GameweekPick
 from app.models.gameweek_result import (
     GameweekIneligibilityReason,
@@ -16,7 +22,6 @@ from app.models.league import (
 )
 from app.models.league_member import (
     LeagueMember,
-    LeagueMemberRole,
     LeagueMemberStatus,
 )
 from app.models.league_rules import (
@@ -41,6 +46,19 @@ from app.services.fpl import (
     UnsupportedFPLPositionError,
     get_fpl_gameweek,
 )
+from app.services.gameweek_cache import (
+    gameweek_response_ttl,
+    invalidate_gameweek_cache,
+    member_gameweek_cache_key,
+    standings_cache_key,
+)
+from app.services.league_access import (
+    require_approved_league_member,
+)
+from app.services.notification import (
+    notify_gameweek_winner,
+)
+from app.services.league import LeagueOwnerRequiredError, _require_owner
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -406,6 +424,24 @@ async def sync_league_gameweek(
                 )
             )
 
+    if result_status == GameweekResultStatus.FINAL:
+        async with db.begin():
+            await _create_gameweek_winner_notifications(
+                db=db,
+                league_id=league_id,
+                league_slug=league_slug,
+                gameweek=gameweek,
+            )
+
+    await invalidate_gameweek_cache(
+        slug=league_slug,
+        gameweek=gameweek,
+        member_ids=[
+            result.league_member_id
+            for result in response_results
+        ],
+    )
+
     return LeagueGameweekSyncResponse(
         league_slug=league_slug,
         gameweek=gameweek,
@@ -542,6 +578,99 @@ def _rank_results(
     return standings
 
 
+async def _create_gameweek_winner_notifications(
+    db: AsyncSession,
+    *,
+    league_id: int,
+    league_slug: str,
+    gameweek: int,
+) -> None:
+    rows = await _get_gameweek_result_rows(
+        db=db,
+        league_id=league_id,
+        gameweek=gameweek,
+    )
+
+    if not rows:
+        return
+
+    standings = _rank_results(rows)
+    winners = [
+        standing
+        for standing in standings
+        if standing.eligible and standing.rank == 1
+    ]
+
+    if not winners:
+        return
+
+    winner_member_ids = [
+        winner.league_member_id for winner in winners
+    ]
+
+    winner_result = await db.execute(
+        select(
+            LeagueMember.id,
+            LeagueMember.fpl_entry_id,
+            FPLAccount.team_name,
+        )
+        .outerjoin(
+            FPLAccount,
+            FPLAccount.user_id == LeagueMember.user_id,
+        )
+        .where(LeagueMember.id.in_(winner_member_ids))
+    )
+
+    winner_names = {
+        member_id: team_name or f"Entry {fpl_entry_id}"
+        for member_id, fpl_entry_id, team_name in winner_result.all()
+    }
+    winning_score = winners[0].scoreboard_points
+    names = [
+        winner_names.get(
+            winner.league_member_id,
+            f"Entry {winner.fpl_entry_id}",
+        )
+        for winner in winners
+    ]
+
+    if len(names) == 1:
+        body = (
+            f"{names[0]} won Gameweek {gameweek} "
+            f"with {winning_score} points."
+        )
+    elif len(names) == 2:
+        body = (
+            f"{names[0]} and {names[1]} tied for "
+            f"Gameweek {gameweek} with {winning_score} points."
+        )
+    else:
+        body = (
+            f"{', '.join(names[:-1])}, and {names[-1]} tied "
+            f"for Gameweek {gameweek} with {winning_score} points."
+        )
+
+    recipients_result = await db.execute(
+        select(LeagueMember.user_id).where(
+            LeagueMember.league_id == league_id,
+            LeagueMember.status == LeagueMemberStatus.APPROVED,
+            LeagueMember.user_id.is_not(None),
+        )
+    )
+
+    recipient_user_ids = recipients_result.scalars().all()
+
+    for user_id in recipient_user_ids:
+        await notify_gameweek_winner(
+            db=db,
+            user_id=user_id,
+            league_id=league_id,
+            league_slug=league_slug,
+            gameweek=gameweek,
+            body=body,
+        )
+
+
 async def _get_gameweek_result_rows(
     db: AsyncSession,
     league_id: int,
@@ -571,10 +700,27 @@ async def _get_gameweek_result_rows(
     ]
 
 
+async def _validate_gameweek_started_for_missing_result(
+    gameweek: int,
+) -> None:
+    bootstrap = await get_cached_bootstrap_static()
+
+    if bootstrap is None:
+        bootstrap = await get_bootstrap_static()
+
+    event = _get_gameweek_event(
+        bootstrap=bootstrap,
+        gameweek=gameweek,
+    )
+    validate_gameweek_started(event)
+
+
 async def get_league_gameweek(
     db: AsyncSession,
     slug: str,
     gameweek: int,
+    *,
+    user_id: int,
 ) -> LeagueGameweekResponse:
     league = await db.scalar(
         select(League).where(
@@ -584,6 +730,12 @@ async def get_league_gameweek(
 
     if league is None:
         raise GameweekLeagueNotFoundError
+
+    await require_approved_league_member(
+        db=db,
+        league_id=league.id,
+        user_id=user_id,
+    )
 
     rules = await db.scalar(
         select(LeagueRules).where(
@@ -597,6 +749,19 @@ async def get_league_gameweek(
     if gameweek < rules.start_gameweek:
         raise GameweekBeforeLeagueStartError
 
+    cache_key = standings_cache_key(
+        slug,
+        gameweek,
+    )
+
+    cached = await get_cached_model(
+        cache_key,
+        LeagueGameweekResponse,
+    )
+
+    if cached is not None:
+        return cached
+
     rows = await _get_gameweek_result_rows(
         db=db,
         league_id=league.id,
@@ -604,6 +769,7 @@ async def get_league_gameweek(
     )
 
     if not rows:
+        await _validate_gameweek_started_for_missing_result(gameweek)
         raise GameweekResultsNotFoundError
 
     standings = _rank_results(rows)
@@ -614,12 +780,22 @@ async def get_league_gameweek(
         else GameweekResultStatus.FINAL
     )
 
-    return LeagueGameweekResponse(
+    response = LeagueGameweekResponse(
         league_slug=league.slug,
         gameweek=gameweek,
         status=result_status,
         standings=standings,
     )
+
+    await set_cached_model(
+        key=cache_key,
+        value=response,
+        ttl=gameweek_response_ttl(
+            result_status,
+        ),
+    )
+
+    return response
 
 
 async def get_member_gameweek(
@@ -627,6 +803,8 @@ async def get_member_gameweek(
     slug: str,
     gameweek: int,
     member_id: int,
+    *,
+    user_id: int,
 ) -> MemberGameweekResponse:
     league = await db.scalar(
         select(League).where(
@@ -637,6 +815,38 @@ async def get_member_gameweek(
     if league is None:
         raise GameweekLeagueNotFoundError
 
+    await require_approved_league_member(
+        db=db,
+        league_id=league.id,
+        user_id=user_id,
+    )
+
+    rules = await db.scalar(
+        select(LeagueRules).where(
+            LeagueRules.league_id == league.id,
+        )
+    )
+
+    if rules is None:
+        raise GameweekLeagueRulesNotFoundError
+
+    if gameweek < rules.start_gameweek:
+        raise GameweekBeforeLeagueStartError
+
+    cache_key = member_gameweek_cache_key(
+        slug,
+        gameweek,
+        member_id,
+    )
+
+    cached = await get_cached_model(
+        cache_key,
+        MemberGameweekResponse,
+    )
+
+    if cached is not None:
+        return cached
+
     rows = await _get_gameweek_result_rows(
         db=db,
         league_id=league.id,
@@ -644,6 +854,7 @@ async def get_member_gameweek(
     )
 
     if not rows:
+        await _validate_gameweek_started_for_missing_result(gameweek)
         raise GameweekResultsNotFoundError
 
     standings = _rank_results(rows)
@@ -679,7 +890,7 @@ async def get_member_gameweek(
 
     picks = picks_result.scalars().all()
 
-    return MemberGameweekResponse(
+    response = MemberGameweekResponse(
         league_member_id=member_id,
         fpl_entry_id=standing.fpl_entry_id,
         gameweek=gameweek,
@@ -716,12 +927,20 @@ async def get_member_gameweek(
         ],
     )
 
+    await set_cached_model(
+        key=cache_key,
+        value=response,
+        ttl=gameweek_response_ttl(result.status),
+    )
+
+    return response
+
 
 async def sync_league_gameweek_as_owner(
     db: AsyncSession,
     slug: str,
     gameweek: int,
-    owner_fpl_entry_id: int,
+    owner_user_id: int,
 ) -> LeagueGameweekSyncResponse:
     async with db.begin():
         league = await db.scalar(
@@ -733,17 +952,14 @@ async def sync_league_gameweek_as_owner(
         if league is None:
             raise GameweekLeagueNotFoundError
 
-        owner = await db.scalar(
-            select(LeagueMember).where(
-                LeagueMember.league_id == league.id,
-                LeagueMember.fpl_entry_id == owner_fpl_entry_id,
-                LeagueMember.role == LeagueMemberRole.OWNER,
-                LeagueMember.status == LeagueMemberStatus.APPROVED,
+        try:
+            await _require_owner(
+                db=db,
+                league_id=league.id,
+                user_id=owner_user_id,
             )
-        )
-
-        if owner is None:
-            raise GameweekSyncOwnerRequiredError
+        except LeagueOwnerRequiredError as exc:
+            raise GameweekSyncOwnerRequiredError from exc
 
     return await sync_league_gameweek(
         db=db,
