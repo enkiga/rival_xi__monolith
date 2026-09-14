@@ -27,11 +27,6 @@ htmlcov/
 .tox/
 .nox/
 
-# Environment and sensitive keys
-.env
-.env.*
-!.env.example
-
 # Local runtime artifacts
 *.log
 *.sqlite
