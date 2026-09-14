@@ -3,6 +3,12 @@
 Docker Compose runs the FastAPI backend and Redis. PostgreSQL is external; the
 frontend will be added later.
 
+Backend image files live in `backend/Dockerfile` and `backend/.dockerignore`.
+Compose uses `backend/` as the build context, so only backend build inputs are
+sent to Docker. The shared `compose.yaml`, development and production Compose
+files, and Docker environment template stay at the repository root because they
+configure the full stack, including Redis. Run Compose commands from the root.
+
 ## Prerequisites
 
 - Docker Engine with Docker Compose v2 or newer, or Docker Desktop (running).

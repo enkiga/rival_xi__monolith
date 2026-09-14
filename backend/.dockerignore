@@ -1,0 +1,13 @@
+# Only backend build inputs belong in the image context.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!app/
+!app/**
+!alembic/
+!alembic/**
+!alembic.ini
+**/__pycache__/
+**/*.py[cod]
+**/.env*
