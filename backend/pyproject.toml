@@ -8,9 +8,11 @@ dependencies = [
     "alembic>=1.19.2",
     "apscheduler>=3.11.3",
     "asyncpg>=0.31.0",
+    "email-validator>=2.3.0",
     "fastapi[standard]>=0.141.1",
     "httpx>=0.28.1",
     "pydantic-settings>=2.15.0",
     "python-slugify>=9.0.0",
+    "redis>=8.1.0",
     "sqlalchemy[asyncio]>=2.0.52",
 ]
