@@ -1,6 +1,8 @@
 # Python bytecode and cache files
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
 # Build artifacts
 build/
 dist/
@@ -13,6 +15,8 @@ wheels/
 .venv/
 venv/
 env/
+venv.bak/
+env.bak/
 .uv-cache/
 
 # Testing & Linting artifacts
@@ -26,6 +30,17 @@ htmlcov/
 .hypothesis/
 .tox/
 .nox/
+.pyre/
+.pytype/
+.dmypy.json
+dmypy.json
+coverage.json
+*.cover
+*.py,cover
+
+# Interactive Python sessions
+.ipynb_checkpoints/
+.ipython/
 
 # Local runtime artifacts
 *.log
