@@ -3,6 +3,7 @@ from enum import Enum
 
 from app.db.base import Base
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     SmallInteger,
@@ -30,10 +31,20 @@ class LeagueMember(Base):
     __tablename__ = "league_members"
 
     __table_args__ = (
+        CheckConstraint(
+            "scoring_start_gameweek IS NULL OR "
+            "scoring_start_gameweek BETWEEN 1 AND 38",
+            name="ck_league_member_scoring_start_gameweek",
+        ),
         UniqueConstraint(
             "league_id",
             "fpl_entry_id",
             name="uq_league_member_fpl_entry",
+        ),
+        UniqueConstraint(
+            "league_id",
+            "user_id",
+            name="uq_league_member_user",
         ),
     )
 
@@ -46,6 +57,12 @@ class LeagueMember(Base):
             "leagues.id",
             ondelete="CASCADE",
         ),
+        nullable=False,
+        index=True,
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
