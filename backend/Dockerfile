@@ -1,7 +1,11 @@
 # syntax=docker/dockerfile:1
 FROM ghcr.io/astral-sh/uv:0.12.11 AS uv
 
-FROM python:3.12-slim-bookworm AS dependencies
+FROM python:3.12-alpine3.24 AS python-base
+# Apply distro security fixes published since the upstream image was built.
+RUN apk upgrade --no-cache
+
+FROM python-base AS dependencies
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -12,12 +16,12 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM python-base AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
-RUN groupadd --gid 10001 app \
-    && useradd --uid 10001 --gid app --no-create-home app
+RUN addgroup -g 10001 -S app \
+    && adduser -u 10001 -S -D -H -G app app
 WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 COPY app ./app

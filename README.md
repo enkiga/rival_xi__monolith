@@ -134,5 +134,21 @@ version; tags can receive upstream updates. Rebuild regularly with `--pull` and
 validate before deployment. For deployments requiring immutable base images, pin
 reviewed image digests and maintain an update process.
 
+The backend uses Python 3.12 on Alpine 3.24, with distro package updates applied
+in a shared base stage for both dependency installation and runtime. Alpine uses
+musl rather than glibc; when adding native Python dependencies, verify their
+Linux wheels support this base. To pick up new security fixes even when Docker
+has cached the package-update layer, rebuild and scan the resulting image:
+
+```sh
+docker compose --env-file .env.prod -f compose.yaml -f compose.prod.yaml build --pull --no-cache backend
+docker scout cves --only-severity critical,high rivalxi-prod-backend
+```
+
+Dockerfile editor warnings describe the upstream `FROM` image. They can still
+show findings fixed by later package updates; scan the built backend image to
+check what will actually run. A clean scan is a point-in-time result, so repeat
+it when rebuilding and deploying.
+
 Build conventions follow the [Docker build guidance](https://docs.docker.com/build/building/best-practices/)
 and [uv Docker integration guide](https://docs.astral.sh/uv/guides/integration/docker/).
