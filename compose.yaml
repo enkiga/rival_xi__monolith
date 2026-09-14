@@ -4,9 +4,10 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     init: true
+    env_file:
+      - ${BACKEND_ENV_FILE:-./backend/.env}
     environment:
-      DATABASE_URL: ${DOCKER_DATABASE_URL:-${DATABASE_URL:?Set DATABASE_URL in the root environment file}}
-      GAMEWEEK_SYNC_INTERVAL_MINUTES: ${GAMEWEEK_SYNC_INTERVAL_MINUTES:-5}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-${DATABASE_URL:?Set DATABASE_URL in the backend environment file}}
       REDIS_URL: redis://redis:6379/0
     depends_on:
       redis:

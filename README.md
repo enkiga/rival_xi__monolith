@@ -5,9 +5,10 @@ frontend will be added later.
 
 Backend image files live in `backend/Dockerfile` and `backend/.dockerignore`.
 Compose uses `backend/` as the build context, so only backend build inputs are
-sent to Docker. The shared `compose.yaml`, development and production Compose
-files, and Docker environment template stay at the repository root because they
-configure the full stack, including Redis. Run Compose commands from the root.
+sent to Docker. Shared Compose files stay at the repository root because they
+configure the full stack. Backend environment files and their template live in
+`backend/`, leaving room for the frontend to own its environment separately.
+Run Compose commands from the root.
 
 ## Prerequisites
 
@@ -24,19 +25,30 @@ terminal is currently in `backend/`, move up first:
 cd ..
 ```
 
-The development environment file is now **root `.env`**, not `.env.dev` or
-`backend/.env`. If your existing backend configuration was migrated, root `.env`
-already exists. Only create it from the template if it is missing:
+The development environment file is `backend/.env`. Create it from the backend
+template if it is missing:
 
 ```sh
-test -f .env || cp .env.example .env
+test -f backend/.env || cp backend/.env.example backend/.env
 ```
 
-Edit the root `.env` and set `DATABASE_URL` to a real database using the
+Edit `backend/.env` and set `DATABASE_URL` to a real database using the
 `postgresql+asyncpg://user:password@host:5432/database` format. Direct backend
 runs read this file automatically, regardless of the working directory. Docker
 Compose reads the same file and passes the backend's settings into the container;
 the file itself is not mounted or copied into the image.
+
+Set `AUTH_OTP_SECRET` to a long random secret in `backend/.env`;
+generate one with `python3 -c "import secrets; print(secrets.token_hex(32))"`.
+Keep the value stable across container restarts. Compose requires it for backend
+commands, including Alembic, because migrations import the backend settings.
+For local HTTP development, set `AUTH_COOKIE_SECURE=false`; use `true` with
+production HTTPS.
+
+Set the `SMTP_*` values in the same backend environment file to enable OTP email
+delivery. Compose passes the complete file to the backend, including SMTP and
+authentication settings, while retaining the container-specific database and
+Redis overrides.
 
 For PostgreSQL running on your computer, use `localhost` in `DATABASE_URL` for
 direct runs and set `DOCKER_DATABASE_URL` with the same credentials and database
@@ -50,26 +62,26 @@ interface reachable from Docker and allow connections from the Docker subnet.
 Build, apply migrations, and start:
 
 ```sh
-docker compose --env-file .env -f compose.yaml -f compose.dev.yaml build --pull
-docker compose --env-file .env -f compose.yaml -f compose.dev.yaml run --rm --no-deps backend alembic upgrade head
-docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --wait
+docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml build --pull
+docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml run --rm --no-deps backend alembic upgrade head
+docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml up -d --wait
 ```
 
 To stay in `backend/` instead, prefix every root file path with `../`:
 
 ```sh
-docker compose --env-file ../.env -f ../compose.yaml -f ../compose.dev.yaml build --pull
-docker compose --env-file ../.env -f ../compose.yaml -f ../compose.dev.yaml run --rm --no-deps backend alembic upgrade head
-docker compose --env-file ../.env -f ../compose.yaml -f ../compose.dev.yaml up -d --wait
+docker compose --env-file .env -f ../compose.yaml -f ../compose.dev.yaml build --pull
+docker compose --env-file .env -f ../compose.yaml -f ../compose.dev.yaml run --rm --no-deps backend alembic upgrade head
+docker compose --env-file .env -f ../compose.yaml -f ../compose.dev.yaml up -d --wait
 ```
 
-An error such as `couldn't find env file: .../backend/.env.dev` means the command
-uses the old filename and resolves it from the backend directory. Use one of the
-command sets above; do not create another environment file inside `backend/`.
+An error about a missing environment file means its path is being resolved from
+the current working directory. Use the matching command set above.
 
 - API documentation: http://localhost:8000/docs
 - Application health: http://localhost:8000/api/v1/health
 - Database connectivity: http://localhost:8000/api/v1/health/db
+- Redis connectivity: http://localhost:8000/api/v1/health/redis
 
 Changes under `backend/app` trigger automatic reload. Application and migration
 directories are mounted read-only; the container's dependencies stay separate
@@ -80,11 +92,12 @@ Keep the lockfile in sync with `uv lock` when editing dependencies.
 ## Production
 
 ```sh
-cp .env.example .env.prod
+cp backend/.env.example backend/.env.prod
 ```
 
-Keep `.env.prod` at the repository root and edit it with production credentials
-and an external PostgreSQL hostname. Remove the example `DOCKER_DATABASE_URL`
+Keep `backend/.env.prod` with the backend and edit it with production credentials
+and an external PostgreSQL hostname. Set `BACKEND_ENV_FILE=./backend/.env.prod`
+inside it. Remove the example `DOCKER_DATABASE_URL`
 override so Compose uses the production `DATABASE_URL`, or set both deliberately.
 Use a separate database from development. Environment files are ignored by Git
 and excluded from the image; restrict access to them on the deployment host.
@@ -92,15 +105,19 @@ They supply container environment variables at runtime, so Docker administrators
 can inspect them.
 
 ```sh
-docker compose --env-file .env.prod -f compose.yaml -f compose.prod.yaml build --pull
-docker compose --env-file .env.prod -f compose.yaml -f compose.prod.yaml run --rm --no-deps backend alembic upgrade head
-docker compose --env-file .env.prod -f compose.yaml -f compose.prod.yaml up -d --wait
+docker compose --env-file backend/.env.prod -f compose.yaml -f compose.prod.yaml build --pull
+docker compose --env-file backend/.env.prod -f compose.yaml -f compose.prod.yaml run --rm --no-deps backend alembic upgrade head
+docker compose --env-file backend/.env.prod -f compose.yaml -f compose.prod.yaml up -d --wait
 ```
 
 The production API defaults to http://127.0.0.1:8001. Put a TLS reverse proxy in
 front of it for public access. `BACKEND_BIND_ADDRESS` and `BACKEND_PORT` override
 the published address and port. The localhost default works with a proxy on the
 Docker host; a containerized proxy needs a shared network configured separately.
+Set `FORWARDED_ALLOW_IPS` to the exact IP or CIDR of that trusted proxy so Uvicorn
+can supply the real client address to authentication rate limits. Keep the
+loopback-only default until the proxy address is known; never use `*` while the
+backend can be reached directly by untrusted clients.
 
 Production runs the image's bundled source without reload or source mounts,
 with a non-root backend user, a read-only backend filesystem, temporary `/tmp`
@@ -119,31 +136,29 @@ and Redis volumes, so they can run together when given separate databases.
 
 ## Running the backend directly
 
-Use the same root `.env`; do not create environment files inside `backend/`.
-With uv installed, run these commands from the repository root:
+Use `backend/.env`. With uv installed, run these commands from the repository
+root:
 
 ```sh
 uv run --directory backend alembic upgrade head
 uv run --directory backend uvicorn app.main:app --reload
 ```
 
-Settings resolve the root `.env` relative to the settings module, so running from
-`backend/` also works. Exported environment variables take precedence over the
-file, and Compose-only keys such as `BACKEND_PORT` and `DOCKER_DATABASE_URL` are
-ignored by backend settings. Direct runs load `.env`, not `.env.prod`; the latter
-is an optional root file selected explicitly by the production Compose commands.
-On a dedicated production host, you can instead keep its configuration in root
-`.env` and change the commands to `--env-file .env`.
+Settings resolve `backend/.env` relative to the settings module, so running from
+`backend/` also works. Exported environment variables take precedence. Compose
+and Uvicorn keys such as `BACKEND_PORT`, `DOCKER_DATABASE_URL`, and
+`FORWARDED_ALLOW_IPS` are ignored by application settings. Direct runs load
+`backend/.env`; production Compose selects `backend/.env.prod` explicitly.
 
-When adding a backend setting, define it in `Settings`, document it in the root
-`.env.example`, and add it to the backend's `environment` mapping in `compose.yaml`.
+When adding a backend setting, define it in `Settings` and document it in
+`backend/.env.example`. Compose loads the complete backend environment file and
+overrides only container-specific connection addresses.
 
 ## Redis
 
 Redis is available to the backend at `redis://redis:6379/0`, supplied as
-`REDIS_URL`. This Docker setup provisions Redis; application caching or job
-integration still needs to consume that variable. The existing settings class
-does not yet define a Redis setting.
+`REDIS_URL`. Compose overrides the backend file's host-side Redis URL so backend
+caching can reach the Redis service over the Docker network.
 
 Redis has no published host port and uses an internal Docker network shared only
 with the backend. This configuration relies on network isolation rather than a
@@ -152,28 +167,28 @@ Append-only persistence writes to a separate named volume per environment.
 Back up those volumes if Redis begins storing data that must be retained.
 
 ```sh
-docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec redis redis-cli ping
+docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml exec redis redis-cli ping
 ```
 
 Expected output: `PONG`.
 
 ## Common commands
 
-These examples target development. For production, replace `.env` with
-`.env.prod` and `compose.dev.yaml` with `compose.prod.yaml`.
+These examples target development. For production, replace `backend/.env` with
+`backend/.env.prod` and `compose.dev.yaml` with `compose.prod.yaml`.
 
 ```sh
 # Check service status.
-docker compose --env-file .env -f compose.yaml -f compose.dev.yaml ps
+docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml ps
 
 # Follow backend logs.
-docker compose --env-file .env -f compose.yaml -f compose.dev.yaml logs -f backend
+docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml logs -f backend
 
 # Stop and remove containers; preserve Redis data.
-docker compose --env-file .env -f compose.yaml -f compose.dev.yaml down
+docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml down
 
 # Validate configuration without starting services.
-docker compose --env-file .env -f compose.yaml -f compose.dev.yaml config --quiet
+docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml config --quiet
 ```
 
 Adding `--volumes` to `down` deletes that instance's Redis data. PostgreSQL remains
@@ -193,7 +208,7 @@ Linux wheels support this base. To pick up new security fixes even when Docker
 has cached the package-update layer, rebuild and scan the resulting image:
 
 ```sh
-docker compose --env-file .env.prod -f compose.yaml -f compose.prod.yaml build --pull --no-cache backend
+docker compose --env-file backend/.env.prod -f compose.yaml -f compose.prod.yaml build --pull --no-cache backend
 docker scout cves --only-severity critical,high rivalxi-prod-backend
 ```
 
