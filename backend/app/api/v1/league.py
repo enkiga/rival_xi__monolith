@@ -5,6 +5,7 @@ from app.db.session import get_db
 from app.integrations.fpl.client import FPLUpstreamError
 from app.schemas.gameweek import (
     LeagueGameweekResponse,
+    LeagueGameweekSummaryResponse,
     LeagueGameweekSyncResponse,
     MemberGameweekResponse,
 )
@@ -30,6 +31,7 @@ from app.services.gameweek import (
     GameweekSyncOwnerRequiredError,
     LeagueNotActiveError,
     get_league_gameweek,
+    get_league_gameweek_summary,
     get_member_gameweek,
     sync_league_gameweek_as_owner,
 )
@@ -170,6 +172,15 @@ async def get_league_endpoint(
         _raise_league_access_error(exc)
 
         raise
+
+    except (
+        CurrentGameweekNotFoundError,
+        FPLUpstreamError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to determine the current FPL gameweek",
+        )
 
 
 @router.patch(
@@ -356,6 +367,15 @@ async def update_league_endpoint(
             detail="Active league configuration cannot be edited",
         )
 
+    except (
+        CurrentGameweekNotFoundError,
+        FPLUpstreamError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to determine the current FPL gameweek",
+        )
+
 
 @router.post(
     "/{slug}/gameweeks/{gameweek}/sync",
@@ -421,6 +441,72 @@ async def sync_gameweek_endpoint(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Unable to retrieve complete FPL gameweek data",
+        )
+
+    except FPLUpstreamError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="FPL service is temporarily unavailable",
+        )
+
+
+@router.get(
+    "/{slug}/gameweeks/{gameweek}/summary",
+    response_model=LeagueGameweekSummaryResponse,
+)
+async def get_league_gameweek_summary_endpoint(
+    slug: str,
+    gameweek: int = Path(
+        ge=1,
+        le=38,
+    ),
+    auth: AuthenticatedSession = Depends(get_current_auth),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> LeagueGameweekSummaryResponse:
+    try:
+        return await get_league_gameweek_summary(
+            db=db,
+            slug=slug,
+            gameweek=gameweek,
+            user_id=auth.user_id,
+        )
+
+    except GameweekLeagueNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="League not found",
+        )
+
+    except (
+        LeagueMembershipPendingError,
+        LeagueMembershipRequiredError,
+    ) as exc:
+        _raise_league_access_error(exc)
+
+        raise
+
+    except GameweekBeforeLeagueStartError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Gameweek is before the league start gameweek",
+        )
+
+    except FutureGameweekError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Gameweek has not started yet",
+        )
+
+    except GameweekEventNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="FPL gameweek not found",
+        )
+
+    except GameweekResultsNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Gameweek results are not available",
         )
 
     except FPLUpstreamError:

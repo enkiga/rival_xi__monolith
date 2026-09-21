@@ -98,6 +98,7 @@ class LeagueDetailResponse(BaseModel):
     status: LeagueStatus
     created_at: datetime
     started_at: datetime | None
+    current_gameweek: int
     rules: LeagueRulesResponse
     members: list[LeagueMemberResponse]
 

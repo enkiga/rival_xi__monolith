@@ -84,6 +84,16 @@ class LeagueGameweekResponse(BaseModel):
     ]
 
 
+class LeagueGameweekSummaryResponse(BaseModel):
+    league_slug: str
+    gameweek: int
+    status: GameweekResultStatus
+
+    current_user_rank: int | None
+    current_user_score: int | None
+    winner_score: int | None
+
+
 class GameweekPickResponse(BaseModel):
     element_id: int
     player_name: str

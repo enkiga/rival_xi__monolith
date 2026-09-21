@@ -34,6 +34,7 @@ from app.schemas.gameweek import (
     GameweekStandingResponse,
     GameweekSyncMemberResponse,
     LeagueGameweekResponse,
+    LeagueGameweekSummaryResponse,
     LeagueGameweekSyncResponse,
     MemberGameweekResponse,
     RivalxiGameweekScore,
@@ -796,6 +797,64 @@ async def get_league_gameweek(
     )
 
     return response
+
+
+async def get_league_gameweek_summary(
+    db: AsyncSession,
+    slug: str,
+    gameweek: int,
+    *,
+    user_id: int,
+) -> LeagueGameweekSummaryResponse:
+    gameweek_response = await get_league_gameweek(
+        db=db,
+        slug=slug,
+        gameweek=gameweek,
+        user_id=user_id,
+    )
+
+    current_fpl_entry_id = await db.scalar(
+        select(FPLAccount.fpl_entry_id).where(
+            FPLAccount.user_id == user_id,
+        )
+    )
+    current_user_standing = next(
+        (
+            standing
+            for standing in gameweek_response.standings
+            if standing.fpl_entry_id == current_fpl_entry_id
+        ),
+        None,
+    )
+    leader = next(
+        (
+            standing
+            for standing in gameweek_response.standings
+            if standing.rank == 1
+        ),
+        None,
+    )
+
+    return LeagueGameweekSummaryResponse(
+        league_slug=gameweek_response.league_slug,
+        gameweek=gameweek_response.gameweek,
+        status=gameweek_response.status,
+        current_user_rank=(
+            current_user_standing.rank
+            if current_user_standing is not None
+            else None
+        ),
+        current_user_score=(
+            current_user_standing.scoreboard_points
+            if current_user_standing is not None
+            else None
+        ),
+        winner_score=(
+            leader.scoreboard_points
+            if leader is not None
+            else None
+        ),
+    )
 
 
 async def get_member_gameweek(

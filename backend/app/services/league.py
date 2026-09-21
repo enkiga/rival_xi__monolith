@@ -211,6 +211,7 @@ async def get_league(
     members_result = await db.execute(members_query)
 
     members = members_result.scalars().all()
+    current_gameweek = await get_current_gameweek()
 
     return LeagueDetailResponse(
         id=league.id,
@@ -219,6 +220,7 @@ async def get_league(
         status=league.status,
         created_at=league.created_at,
         started_at=league.started_at,
+        current_gameweek=current_gameweek,
         rules=LeagueRulesResponse(
             start_gameweek=rules.start_gameweek,
             include_transfer_deductions=(rules.include_transfer_deductions),
@@ -841,6 +843,8 @@ async def update_league(
     except IntegrityError as exc:
         raise DuplicateLeagueError from exc
 
+    current_gameweek = await get_current_gameweek()
+
     return LeagueDetailResponse(
         id=league.id,
         name=league.name,
@@ -848,6 +852,7 @@ async def update_league(
         status=league.status,
         created_at=league.created_at,
         started_at=league.started_at,
+        current_gameweek=current_gameweek,
         rules=LeagueRulesResponse(
             start_gameweek=rules.start_gameweek,
             include_transfer_deductions=(rules.include_transfer_deductions),

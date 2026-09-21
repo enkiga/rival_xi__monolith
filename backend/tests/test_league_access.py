@@ -120,6 +120,12 @@ class LeagueAccessTests(IsolatedAsyncioTestCase):
                         new_callable=AsyncMock,
                         return_value=rules,
                     ),
+                    patch.object(
+                        league_service,
+                        "get_current_gameweek",
+                        new_callable=AsyncMock,
+                        return_value=5,
+                    ),
                 ):
                     await league_service.get_league(
                         db=db,
