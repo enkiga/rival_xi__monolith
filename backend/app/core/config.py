@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     redis_url: str
     auth_otp_secret: str
 
+    cors_allowed_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173"
+    )
+
     gameweek_sync_interval_minutes: int
 
     # Outbound FPL protection.
