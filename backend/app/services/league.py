@@ -12,6 +12,7 @@ from app.models.league_rules import LeagueRules
 from app.schemas.league import (
     LeagueCreate,
     LeagueDetailResponse,
+    LeagueDetailMemberResponse,
     LeagueListItemResponse,
     LeagueListResponse,
     LeagueMemberResponse,
@@ -193,7 +194,11 @@ async def get_league(
     )
 
     members_query = (
-        select(LeagueMember)
+        select(LeagueMember, FPLAccount)
+        .join(
+            FPLAccount,
+            FPLAccount.user_id == LeagueMember.user_id,
+        )
         .where(
             LeagueMember.league_id == league.id,
         )
@@ -210,7 +215,7 @@ async def get_league(
 
     members_result = await db.execute(members_query)
 
-    members = members_result.scalars().all()
+    members = members_result.all()
     current_gameweek = await get_current_gameweek()
 
     return LeagueDetailResponse(
@@ -226,7 +231,10 @@ async def get_league(
             include_transfer_deductions=(rules.include_transfer_deductions),
             allowed_chips=rules.allowed_chips,
         ),
-        members=[_member_response(member) for member in members],
+        members=[
+            _detail_member_response(member, account)
+            for member, account in members
+        ],
     )
 
 
@@ -453,6 +461,17 @@ def _member_response(
         joined_at=member.joined_at,
         approved_at=member.approved_at,
         scoring_start_gameweek=(member.scoring_start_gameweek),
+    )
+
+
+def _detail_member_response(
+    member: LeagueMember,
+    account: FPLAccount,
+) -> LeagueDetailMemberResponse:
+    return LeagueDetailMemberResponse(
+        **_member_response(member).model_dump(),
+        team_name=account.team_name,
+        manager_name=account.manager_name,
     )
 
 
@@ -829,7 +848,11 @@ async def update_league(
             await db.refresh(rules)
 
             members_result = await db.execute(
-                select(LeagueMember)
+                select(LeagueMember, FPLAccount)
+                .join(
+                    FPLAccount,
+                    FPLAccount.user_id == LeagueMember.user_id,
+                )
                 .where(
                     LeagueMember.league_id == league.id,
                 )
@@ -838,7 +861,7 @@ async def update_league(
                 )
             )
 
-            members = members_result.scalars().all()
+            members = members_result.all()
 
     except IntegrityError as exc:
         raise DuplicateLeagueError from exc
@@ -858,5 +881,8 @@ async def update_league(
             include_transfer_deductions=(rules.include_transfer_deductions),
             allowed_chips=rules.allowed_chips,
         ),
-        members=[_member_response(member) for member in members],
+        members=[
+            _detail_member_response(member, account)
+            for member, account in members
+        ],
     )

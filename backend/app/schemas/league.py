@@ -60,6 +60,11 @@ class LeagueMemberResponse(BaseModel):
     scoring_start_gameweek: int | None
 
 
+class LeagueDetailMemberResponse(LeagueMemberResponse):
+    team_name: str
+    manager_name: str
+
+
 class LeagueResponse(BaseModel):
     id: int
     name: str
@@ -100,7 +105,7 @@ class LeagueDetailResponse(BaseModel):
     started_at: datetime | None
     current_gameweek: int
     rules: LeagueRulesResponse
-    members: list[LeagueMemberResponse]
+    members: list[LeagueDetailMemberResponse]
 
 class LeagueStatusResponse(BaseModel):
     id: int

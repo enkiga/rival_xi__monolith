@@ -8,6 +8,7 @@ from app.models.league_member import (
     LeagueMemberRole,
     LeagueMemberStatus,
 )
+from app.schemas.league import LeagueUpdate
 from app.services import gameweek
 from app.services import league as league_service
 from app.services.league_access import (
@@ -101,7 +102,7 @@ class LeagueAccessTests(IsolatedAsyncioTestCase):
         ):
             with self.subTest(role=role):
                 result = Mock()
-                result.scalars.return_value.all.return_value = []
+                result.all.return_value = []
                 db = SimpleNamespace(
                     scalar=AsyncMock(return_value=league),
                     execute=AsyncMock(return_value=result),
@@ -138,3 +139,143 @@ class LeagueAccessTests(IsolatedAsyncioTestCase):
                     "league_members.status =" in query,
                     filters_by_status,
                 )
+
+    async def test_league_members_include_fpl_names(self):
+        now = datetime.now(timezone.utc)
+        league = SimpleNamespace(
+            id=1,
+            name="Private league",
+            slug="private-league",
+            status=LeagueStatus.DRAFT,
+            created_at=now,
+            started_at=None,
+        )
+        member = SimpleNamespace(
+            id=12,
+            fpl_entry_id=4250337,
+            role=LeagueMemberRole.OWNER,
+            status=LeagueMemberStatus.APPROVED,
+            joined_at=now,
+            approved_at=now,
+            scoring_start_gameweek=1,
+        )
+        account = SimpleNamespace(
+            team_name="Rival XI FC",
+            manager_name="Test Manager",
+        )
+        rules = SimpleNamespace(
+            start_gameweek=1,
+            include_transfer_deductions=True,
+            allowed_chips=[],
+        )
+        result = Mock()
+        result.all.return_value = [(member, account)]
+        db = SimpleNamespace(
+            scalar=AsyncMock(return_value=league),
+            execute=AsyncMock(return_value=result),
+        )
+
+        with (
+            patch.object(
+                league_service,
+                "require_approved_league_member",
+                new_callable=AsyncMock,
+                return_value=SimpleNamespace(role=LeagueMemberRole.OWNER),
+            ),
+            patch.object(
+                league_service,
+                "_get_league_rules",
+                new_callable=AsyncMock,
+                return_value=rules,
+            ),
+            patch.object(
+                league_service,
+                "get_current_gameweek",
+                new_callable=AsyncMock,
+                return_value=5,
+            ),
+        ):
+            response = await league_service.get_league(
+                db=db,
+                slug=league.slug,
+                user_id=2,
+            )
+
+        self.assertEqual(response.members[0].team_name, "Rival XI FC")
+        self.assertEqual(response.members[0].manager_name, "Test Manager")
+        self.assertEqual(response.current_gameweek, 5)
+
+    async def test_updated_league_members_include_fpl_names(self):
+        now = datetime.now(timezone.utc)
+        league = SimpleNamespace(
+            id=1,
+            name="Private league",
+            slug="private-league",
+            status=LeagueStatus.DRAFT,
+            created_at=now,
+            started_at=None,
+        )
+        member = SimpleNamespace(
+            id=12,
+            fpl_entry_id=4250337,
+            role=LeagueMemberRole.OWNER,
+            status=LeagueMemberStatus.APPROVED,
+            joined_at=now,
+            approved_at=now,
+            scoring_start_gameweek=1,
+        )
+        account = SimpleNamespace(
+            team_name="Rival XI FC",
+            manager_name="Test Manager",
+        )
+        rules = SimpleNamespace(
+            start_gameweek=1,
+            include_transfer_deductions=True,
+            allowed_chips=[],
+        )
+        result = Mock()
+        result.all.return_value = [(member, account)]
+        transaction = Mock()
+        transaction.__aenter__ = AsyncMock()
+        transaction.__aexit__ = AsyncMock()
+        db = SimpleNamespace(
+            begin=Mock(return_value=transaction),
+            execute=AsyncMock(return_value=result),
+            flush=AsyncMock(),
+            refresh=AsyncMock(),
+        )
+
+        with (
+            patch.object(
+                league_service,
+                "_get_league_for_update",
+                new_callable=AsyncMock,
+                return_value=league,
+            ),
+            patch.object(
+                league_service,
+                "_require_owner",
+                new_callable=AsyncMock,
+            ),
+            patch.object(
+                league_service,
+                "_get_league_rules",
+                new_callable=AsyncMock,
+                return_value=rules,
+            ),
+            patch.object(
+                league_service,
+                "get_current_gameweek",
+                new_callable=AsyncMock,
+                return_value=5,
+            ),
+        ):
+            response = await league_service.update_league(
+                db=db,
+                slug=league.slug,
+                data=LeagueUpdate(name=league.name),
+                owner_user_id=2,
+            )
+
+        self.assertEqual(response.members[0].team_name, "Rival XI FC")
+        self.assertEqual(response.members[0].manager_name, "Test Manager")
