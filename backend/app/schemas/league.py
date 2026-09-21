@@ -71,6 +71,26 @@ class LeagueResponse(BaseModel):
     rules: LeagueRulesResponse
     owner: LeagueMemberResponse
 
+
+class LeagueListItemResponse(BaseModel):
+    name: str
+    slug: str
+    status: LeagueStatus
+    owner: LeagueMemberResponse
+    member_count: int
+    max_member_count: int
+    last_scored_gameweek: int | None
+    rank: int | None
+
+
+class LeagueListResponse(BaseModel):
+    items: list[LeagueListItemResponse]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
 class LeagueDetailResponse(BaseModel):
     id: int
     name: str

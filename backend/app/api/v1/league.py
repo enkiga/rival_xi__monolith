@@ -1,3 +1,5 @@
+from typing import Literal
+
 from app.api.dependencies.auth import get_current_auth
 from app.db.session import get_db
 from app.integrations.fpl.client import FPLUpstreamError
@@ -9,6 +11,7 @@ from app.schemas.gameweek import (
 from app.schemas.league import (
     LeagueCreate,
     LeagueDetailResponse,
+    LeagueListResponse,
     LeagueMemberResponse,
     LeagueResponse,
     LeagueStatusResponse,
@@ -45,6 +48,7 @@ from app.services.league import (
     approve_league_member,
     create_league,
     get_league,
+    get_user_leagues,
     reject_league_member,
     update_league,
 )
@@ -57,6 +61,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Path,
+    Query,
     status,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -110,6 +115,30 @@ async def create_league_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail="League with the same name already exists",
         )
+
+
+@router.get(
+    "",
+    response_model=LeagueListResponse,
+)
+async def get_leagues_endpoint(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    search: str | None = Query(default=None, max_length=100),
+    sort_by: Literal["name", "created_at"] = "created_at",
+    sort_order: Literal["asc", "desc"] = "desc",
+    auth: AuthenticatedSession = Depends(get_current_auth),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> LeagueListResponse:
+    return await get_user_leagues(
+        db=db,
+        user_id=auth.user_id,
+        page=page,
+        page_size=page_size,
+        search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 
 @router.get(

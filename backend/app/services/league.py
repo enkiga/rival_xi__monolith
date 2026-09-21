@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from app.models.fpl_account import FPLAccount
+from app.models.gameweek_result import GameweekResult
 from app.models.league import League, LeagueStatus
 from app.models.league_member import (
     LeagueMember,
@@ -11,6 +12,8 @@ from app.models.league_rules import LeagueRules
 from app.schemas.league import (
     LeagueCreate,
     LeagueDetailResponse,
+    LeagueListItemResponse,
+    LeagueListResponse,
     LeagueMemberResponse,
     LeagueResponse,
     LeagueRulesResponse,
@@ -30,9 +33,10 @@ from app.services.notification import (
     notify_membership_rejected,
 )
 from slugify import slugify
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 MAX_LEAGUE_MEMBERS = 20
 
@@ -221,6 +225,167 @@ async def get_league(
             allowed_chips=rules.allowed_chips,
         ),
         members=[_member_response(member) for member in members],
+    )
+
+
+async def get_user_leagues(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    page: int,
+    page_size: int,
+    search: str | None,
+    sort_by: str,
+    sort_order: str,
+) -> LeagueListResponse:
+    membership = aliased(LeagueMember)
+    owner = aliased(LeagueMember)
+    approved_member_count = (
+        select(func.count(LeagueMember.id))
+        .where(
+            LeagueMember.league_id == League.id,
+            LeagueMember.status == LeagueMemberStatus.APPROVED,
+        )
+        .correlate(League)
+        .scalar_subquery()
+    )
+
+    filters = [
+        membership.user_id == user_id,
+        membership.status.in_(
+            (
+                LeagueMemberStatus.APPROVED,
+                LeagueMemberStatus.PENDING,
+            )
+        ),
+    ]
+
+    normalized_search = search.strip() if search else None
+    if normalized_search:
+        filters.append(League.name.ilike(f"%{normalized_search}%"))
+
+    total = await db.scalar(
+        select(func.count(League.id))
+        .join(
+            membership,
+            membership.league_id == League.id,
+        )
+        .where(*filters)
+    )
+
+    sort_column = League.name if sort_by == "name" else League.created_at
+    ordering = sort_column.asc() if sort_order == "asc" else sort_column.desc()
+    tie_breaker = League.id.asc() if sort_order == "asc" else League.id.desc()
+
+    result = await db.execute(
+        select(
+            League,
+            owner,
+            membership,
+            approved_member_count.label("member_count"),
+        )
+        .join(
+            membership,
+            membership.league_id == League.id,
+        )
+        .join(
+            owner,
+            (owner.league_id == League.id)
+            & (owner.role == LeagueMemberRole.OWNER)
+            & (owner.status == LeagueMemberStatus.APPROVED),
+        )
+        .where(*filters)
+        .order_by(ordering, tie_breaker)
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    )
+
+    rows = result.all()
+    total_count = total or 0
+
+    ranked_league_members = {
+        league.id: viewer.id
+        for league, _, viewer, _ in rows
+        if league.status == LeagueStatus.ACTIVE
+        and viewer.status == LeagueMemberStatus.APPROVED
+    }
+    last_gameweeks: dict[int, int] = {}
+    ranks: dict[int, int] = {}
+
+    if ranked_league_members:
+        latest_gameweeks = (
+            select(
+                GameweekResult.league_id.label("league_id"),
+                func.max(GameweekResult.gameweek).label("gameweek"),
+            )
+            .where(GameweekResult.league_id.in_(ranked_league_members))
+            .group_by(GameweekResult.league_id)
+            .subquery()
+        )
+        ranked_results = (
+            select(
+                GameweekResult.league_id.label("league_id"),
+                GameweekResult.league_member_id.label("league_member_id"),
+                func.rank()
+                .over(
+                    partition_by=GameweekResult.league_id,
+                    order_by=(
+                        GameweekResult.scoreboard_points.desc(),
+                        case(
+                            (GameweekResult.chip_used.is_not(None), 1),
+                            else_=0,
+                        ).asc(),
+                        GameweekResult.transfer_deduction.asc(),
+                    ),
+                )
+                .label("rank"),
+            )
+            .join(
+                latest_gameweeks,
+                (latest_gameweeks.c.league_id == GameweekResult.league_id)
+                & (latest_gameweeks.c.gameweek == GameweekResult.gameweek),
+            )
+            .where(GameweekResult.eligible.is_(True))
+            .subquery()
+        )
+        standings_result = await db.execute(
+            select(
+                latest_gameweeks.c.league_id,
+                latest_gameweeks.c.gameweek,
+                ranked_results.c.league_member_id,
+                ranked_results.c.rank,
+            ).outerjoin(
+                ranked_results,
+                ranked_results.c.league_id == latest_gameweeks.c.league_id,
+            )
+        )
+
+        for standing in standings_result.all():
+            last_gameweeks[standing.league_id] = standing.gameweek
+            if (
+                standing.league_member_id
+                == ranked_league_members[standing.league_id]
+            ):
+                ranks[standing.league_id] = standing.rank
+
+    return LeagueListResponse(
+        items=[
+            LeagueListItemResponse(
+                name=league.name,
+                slug=league.slug,
+                status=league.status,
+                owner=_member_response(league_owner),
+                member_count=member_count,
+                max_member_count=MAX_LEAGUE_MEMBERS,
+                last_scored_gameweek=last_gameweeks.get(league.id),
+                rank=ranks.get(league.id),
+            )
+            for league, league_owner, _, member_count in rows
+        ],
+        total=total_count,
+        page=page,
+        page_size=page_size,
+        pages=(total_count + page_size - 1) // page_size,
     )
 
 
