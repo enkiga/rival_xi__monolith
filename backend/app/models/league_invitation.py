@@ -24,6 +24,7 @@ class LeagueInvitation(Base):
         ),
         nullable=False,
         index=True,
+        unique=True,
     )
 
     created_by_user_id: Mapped[int] = mapped_column(
@@ -35,18 +36,11 @@ class LeagueInvitation(Base):
         index=True,
     )
 
-    # Only the SHA-256 hash is persisted.
-    # The raw token exists only in the invite URL.
-    token_hash: Mapped[str] = mapped_column(
+    # Stable share code; regenerating it invalidates the previous URL.
+    code: Mapped[str] = mapped_column(
         String(64),
         nullable=False,
         unique=True,
-        index=True,
-    )
-
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
         index=True,
     )
 

@@ -1,10 +1,4 @@
-import hashlib
 import secrets
-from datetime import (
-    datetime,
-    timedelta,
-    timezone,
-)
 
 from app.models.fpl_account import FPLAccount
 from app.models.league import League
@@ -21,14 +15,15 @@ from app.models.league_member import (
 )
 from app.schemas.invitation import (
     LeagueInvitationAcceptResponse,
-    LeagueInvitationCreateResponse,
+    LeagueInvitationLinkResponse,
     LeagueInvitationPreviewResponse,
-    LeagueInvitationResponse,
 )
+from app.core.config import settings
 from app.services.league import (
     AlreadyLeagueMemberError,
     FPLAccountRequiredError,
     LeagueNotFoundError,
+    MAX_LEAGUE_MEMBERS,
     create_or_reopen_league_membership,
 )
 from app.services.notification import (
@@ -45,10 +40,6 @@ class InvitationNotFoundError(Exception):
     pass
 
 
-class InvitationExpiredError(Exception):
-    pass
-
-
 class InvitationRevokedError(Exception):
     pass
 
@@ -57,26 +48,15 @@ class InvitationOwnerRequiredError(Exception):
     pass
 
 
-def _generate_invitation_token() -> str:
+def _generate_invitation_code() -> str:
     return secrets.token_urlsafe(32)
-
-
-def _hash_invitation_token(
-    token: str,
-) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def _validate_invitation(
     invitation: LeagueInvitation,
 ) -> None:
-    now = datetime.now(timezone.utc)
-
     if invitation.revoked_at is not None:
         raise InvitationRevokedError
-
-    if invitation.expires_at <= now:
-        raise InvitationExpiredError
 
 
 async def _require_invitation_owner(
@@ -100,59 +80,68 @@ async def _require_invitation_owner(
     return owner
 
 
-async def create_league_invitation(
+def _invitation_link(code: str) -> str:
+    return f"{settings.frontend_base_url.rstrip('/')}/invitations/{code}"
+
+
+async def get_league_invitation_link(
     db: AsyncSession,
     *,
     slug: str,
     user_id: int,
-    expires_in_days: int,
-) -> LeagueInvitationCreateResponse:
-    raw_token = _generate_invitation_token()
+) -> LeagueInvitationLinkResponse:
+    league = await db.scalar(select(League).where(League.slug == slug))
+    if league is None:
+        raise LeagueNotFoundError
 
-    token_hash = _hash_invitation_token(raw_token)
+    await _require_invitation_owner(
+        db=db, league_id=league.id, user_id=user_id
+    )
+    invitation = await db.scalar(
+        select(LeagueInvitation).where(
+            LeagueInvitation.league_id == league.id
+        )
+    )
+    if invitation is None:
+        raise InvitationNotFoundError
 
-    now = datetime.now(timezone.utc)
+    return LeagueInvitationLinkResponse(
+        league_slug=league.slug,
+        invitation_url=_invitation_link(invitation.code),
+    )
 
+
+async def regenerate_league_invitation_link(
+    db: AsyncSession,
+    *,
+    slug: str,
+    user_id: int,
+) -> LeagueInvitationLinkResponse:
     async with db.begin():
         league = await db.scalar(
-            select(League)
-            .where(
-                League.slug == slug,
-            )
-            .with_for_update()
+            select(League).where(League.slug == slug).with_for_update()
         )
-
         if league is None:
             raise LeagueNotFoundError
 
         await _require_invitation_owner(
-            db=db,
-            league_id=league.id,
-            user_id=user_id,
+            db=db, league_id=league.id, user_id=user_id
         )
-
-        invitation = LeagueInvitation(
-            league_id=league.id,
-            created_by_user_id=user_id,
-            token_hash=token_hash,
-            expires_at=(now + timedelta(days=expires_in_days)),
+        invitation = await db.scalar(
+            select(LeagueInvitation)
+            .where(LeagueInvitation.league_id == league.id)
+            .with_for_update()
         )
+        if invitation is None:
+            raise InvitationNotFoundError
 
-        db.add(invitation)
+        invitation.code = _generate_invitation_code()
+        invitation.revoked_at = None
+        code = invitation.code
 
-        await db.flush()
-
-        invitation_id = invitation.id
-        expires_at = invitation.expires_at
-        created_at = invitation.created_at
-        league_slug = league.slug
-
-    return LeagueInvitationCreateResponse(
-        id=invitation_id,
-        league_slug=league_slug,
-        token=raw_token,
-        expires_at=expires_at,
-        created_at=created_at,
+    return LeagueInvitationLinkResponse(
+        league_slug=slug,
+        invitation_url=_invitation_link(code),
     )
 
 
@@ -162,8 +151,6 @@ async def preview_league_invitation(
     token: str,
     user_id: int,
 ) -> LeagueInvitationPreviewResponse:
-    token_hash = _hash_invitation_token(token)
-
     result = await db.execute(
         select(
             LeagueInvitation,
@@ -174,7 +161,7 @@ async def preview_league_invitation(
             League.id == LeagueInvitation.league_id,
         )
         .where(
-            LeagueInvitation.token_hash == token_hash,
+            LeagueInvitation.code == token,
         )
     )
 
@@ -198,11 +185,19 @@ async def preview_league_invitation(
         invitation_id=invitation.id,
         league_name=league.name,
         league_slug=league.slug,
-        expires_at=invitation.expires_at,
         already_member=(
             member is not None and member.status != LeagueMemberStatus.REJECTED
         ),
         membership_status=(member.status if member is not None else None),
+        league_full=(
+            await db.scalar(
+                select(func.count(LeagueMember.id)).where(
+                    LeagueMember.league_id == league.id,
+                    LeagueMember.status == LeagueMemberStatus.APPROVED,
+                )
+            )
+            >= MAX_LEAGUE_MEMBERS
+        ),
     )
 
 
@@ -212,14 +207,13 @@ async def accept_league_invitation(
     token: str,
     user_id: int,
 ) -> LeagueInvitationAcceptResponse:
-    token_hash = _hash_invitation_token(token)
     membership_became_pending = False
 
     async with db.begin():
         invitation = await db.scalar(
             select(LeagueInvitation)
             .where(
-                LeagueInvitation.token_hash == token_hash,
+                LeagueInvitation.code == token,
             )
             .with_for_update()
         )
@@ -368,102 +362,3 @@ async def accept_league_invitation(
         league_member_id=member_id,
         membership_status=member_status,
     )
-
-
-async def list_league_invitations(
-    db: AsyncSession,
-    *,
-    slug: str,
-    user_id: int,
-) -> list[LeagueInvitationResponse]:
-    league = await db.scalar(
-        select(League).where(
-            League.slug == slug,
-        )
-    )
-
-    if league is None:
-        raise LeagueNotFoundError
-
-    await _require_invitation_owner(
-        db=db,
-        league_id=league.id,
-        user_id=user_id,
-    )
-
-    acceptance_count = (
-        select(func.count(LeagueInvitationAcceptance.id))
-        .where(LeagueInvitationAcceptance.invitation_id == LeagueInvitation.id)
-        .correlate(LeagueInvitation)
-        .scalar_subquery()
-    )
-
-    result = await db.execute(
-        select(
-            LeagueInvitation,
-            acceptance_count.label("acceptance_count"),
-        )
-        .where(
-            LeagueInvitation.league_id == league.id,
-        )
-        .order_by(LeagueInvitation.created_at.desc())
-    )
-
-    now = datetime.now(timezone.utc)
-
-    return [
-        LeagueInvitationResponse(
-            id=invitation.id,
-            league_slug=league.slug,
-            expires_at=(invitation.expires_at),
-            revoked_at=(invitation.revoked_at),
-            created_at=(invitation.created_at),
-            acceptance_count=(count),
-            active=(invitation.revoked_at is None and invitation.expires_at > now),
-        )
-        for invitation, count in result.all()
-    ]
-
-
-async def revoke_league_invitation(
-    db: AsyncSession,
-    *,
-    slug: str,
-    invitation_id: int,
-    user_id: int,
-) -> None:
-    now = datetime.now(timezone.utc)
-
-    async with db.begin():
-        league = await db.scalar(
-            select(League)
-            .where(
-                League.slug == slug,
-            )
-            .with_for_update()
-        )
-
-        if league is None:
-            raise LeagueNotFoundError
-
-        await _require_invitation_owner(
-            db=db,
-            league_id=league.id,
-            user_id=user_id,
-        )
-
-        invitation = await db.scalar(
-            select(LeagueInvitation)
-            .where(
-                LeagueInvitation.id == invitation_id,
-                LeagueInvitation.league_id == league.id,
-            )
-            .with_for_update()
-        )
-
-        if invitation is None:
-            raise InvitationNotFoundError
-
-        # Idempotent revoke.
-        if invitation.revoked_at is None:
-            invitation.revoked_at = now

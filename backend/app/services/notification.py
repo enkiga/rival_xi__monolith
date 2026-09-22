@@ -199,6 +199,7 @@ async def notify_gameweek_winner(
     user_id: int,
     league_id: int,
     league_slug: str,
+    league_name: str,
     gameweek: int,
     body: str,
 ) -> Notification:
@@ -211,6 +212,7 @@ async def notify_gameweek_winner(
         data={
             "league_id": league_id,
             "league_slug": league_slug,
+            "league_name": league_name,
             "gameweek": gameweek,
         },
         dedupe_key=(

@@ -50,6 +50,7 @@ class NotificationEventTests(IsolatedAsyncioTestCase):
                 user_id=7,
                 league_id=3,
                 league_slug="rivals",
+                league_name="Rivals",
                 gameweek=12,
                 body="Rivals won.",
             )
@@ -60,6 +61,10 @@ class NotificationEventTests(IsolatedAsyncioTestCase):
             self.assertEqual(
                 create.await_args.kwargs["dedupe_key"],
                 "gw-winner:3:12:7",
+            )
+            self.assertEqual(
+                create.await_args.kwargs["data"]["league_name"],
+                "Rivals",
             )
 
             await notification.notify_fpl_deadline(
@@ -217,6 +222,7 @@ class NotificationEventTests(IsolatedAsyncioTestCase):
                 db=db,
                 league_id=5,
                 league_slug="rivals",
+                league_name="Rivals League",
                 gameweek=6,
             )
 
@@ -224,6 +230,10 @@ class NotificationEventTests(IsolatedAsyncioTestCase):
         self.assertEqual(
             notify.await_args_list[0].kwargs["body"],
             "Alpha and Beta tied for Gameweek 6 with 50 points.",
+        )
+        self.assertEqual(
+            notify.await_args_list[0].kwargs["league_name"],
+            "Rivals League",
         )
 
     async def test_deadline_job_targets_users_in_reminder_window(self):

@@ -1,40 +1,10 @@
-from datetime import datetime
-
 from app.models.league_member import LeagueMemberStatus
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
-class LeagueInvitationCreate(BaseModel):
-    expires_in_days: int = Field(
-        default=7,
-        ge=1,
-        le=30,
-    )
-
-
-class LeagueInvitationCreateResponse(BaseModel):
-    id: int
+class LeagueInvitationLinkResponse(BaseModel):
     league_slug: str
-
-    # Returned only once when the invitation
-    # is created.
-    token: str
-
-    expires_at: datetime
-    created_at: datetime
-
-
-class LeagueInvitationResponse(BaseModel):
-    id: int
-    league_slug: str
-
-    expires_at: datetime
-    revoked_at: datetime | None
-    created_at: datetime
-
-    acceptance_count: int
-
-    active: bool
+    invitation_url: str
 
 
 class LeagueInvitationPreviewResponse(BaseModel):
@@ -43,10 +13,9 @@ class LeagueInvitationPreviewResponse(BaseModel):
     league_name: str
     league_slug: str
 
-    expires_at: datetime
-
     already_member: bool
     membership_status: LeagueMemberStatus | None
+    league_full: bool
 
 
 class LeagueInvitationAcceptResponse(BaseModel):

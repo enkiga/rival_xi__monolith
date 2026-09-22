@@ -1,8 +1,10 @@
+import secrets
 from datetime import datetime, timezone
 
 from app.models.fpl_account import FPLAccount
 from app.models.gameweek_result import GameweekResult
 from app.models.league import League, LeagueStatus
+from app.models.league_invitation import LeagueInvitation
 from app.models.league_member import (
     LeagueMember,
     LeagueMemberRole,
@@ -141,6 +143,13 @@ async def create_league(
 
             db.add(rules)
             db.add(owner)
+            db.add(
+                LeagueInvitation(
+                    league_id=league.id,
+                    created_by_user_id=user_id,
+                    code=secrets.token_urlsafe(32),
+                )
+            )
 
             await db.flush()
 

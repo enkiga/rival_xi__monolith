@@ -279,6 +279,7 @@ async def sync_league_gameweek(
 
         league_id = league.id
         league_slug = league.slug
+        league_name = league.name
 
     if live_data is None:
         live_data = await get_event_live(
@@ -431,6 +432,7 @@ async def sync_league_gameweek(
                 db=db,
                 league_id=league_id,
                 league_slug=league_slug,
+                league_name=league_name,
                 gameweek=gameweek,
             )
 
@@ -584,6 +586,7 @@ async def _create_gameweek_winner_notifications(
     *,
     league_id: int,
     league_slug: str,
+    league_name: str,
     gameweek: int,
 ) -> None:
     rows = await _get_gameweek_result_rows(
@@ -667,6 +670,7 @@ async def _create_gameweek_winner_notifications(
             user_id=user_id,
             league_id=league_id,
             league_slug=league_slug,
+            league_name=league_name,
             gameweek=gameweek,
             body=body,
         )

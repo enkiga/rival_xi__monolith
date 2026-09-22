@@ -26,7 +26,11 @@ class CompletionRouteTests(TestCase):
         paths = app.openapi()["paths"]
 
         self.assertIn(
-            "/api/v1/leagues/{slug}/invitations",
+            "/api/v1/leagues/{slug}/invitation-link",
+            paths,
+        )
+        self.assertIn(
+            "/api/v1/leagues/{slug}/invitation-link/regenerate",
             paths,
         )
         self.assertIn(
