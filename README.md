@@ -45,10 +45,11 @@ commands, including Alembic, because migrations import the backend settings.
 For local HTTP development, set `AUTH_COOKIE_SECURE=false`; use `true` with
 production HTTPS.
 
-Set the `SMTP_*` values in the same backend environment file to enable OTP email
-delivery. Compose passes the complete file to the backend, including SMTP and
-authentication settings, while retaining the container-specific database and
-Redis overrides.
+Set `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, and optionally `BREVO_SENDER_NAME` in
+the same backend environment file to enable OTP and notification email delivery.
+The sender address must be registered and verified in Brevo. Compose passes the
+complete file to the backend while retaining the container-specific database and
+Redis overrides. Do not commit a real API key.
 
 For PostgreSQL running on your computer, use `localhost` in `DATABASE_URL` for
 direct runs and set `DOCKER_DATABASE_URL` with the same credentials and database

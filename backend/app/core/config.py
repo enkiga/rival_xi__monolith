@@ -46,12 +46,11 @@ class Settings(BaseSettings):
     auth_otp_verify_email_limit: int = 10
     auth_otp_verify_ip_limit: int = 30
 
-    smtp_host: str | None = None
-    smtp_port: int = 587
-    smtp_username: str | None = None
-    smtp_password: str | None = None
-    smtp_from_email: str | None = None
-    smtp_use_tls: bool = True
+    brevo_api_key: str | None = None
+    brevo_sender_email: str | None = None
+    brevo_sender_name: str = "RivalXI"
+    brevo_api_base_url: str = "https://api.brevo.com"
+    brevo_timeout_seconds: float = 10.0
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[2] / ".env",
