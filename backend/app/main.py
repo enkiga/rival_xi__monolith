@@ -17,6 +17,10 @@ from app.integrations.fpl.client import (
     get_bootstrap_static,
     start_fpl_client,
 )
+from app.integrations.fpl_rivals.client import (
+    close_fpl_rivals_client,
+    start_fpl_rivals_client,
+)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -30,6 +34,7 @@ async def lifespan(
     await initialize_redis()
 
     start_fpl_client()
+    start_fpl_rivals_client()
 
     # Prime bootstrap metadata, but don't prevent
     # Rivalxi from starting if FPL is temporarily down.
@@ -48,6 +53,7 @@ async def lifespan(
     stop_scheduler()
 
     await close_fpl_client()
+    await close_fpl_rivals_client()
     await close_redis()
 
 

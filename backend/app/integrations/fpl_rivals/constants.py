@@ -1,0 +1,4 @@
+FPL_RIVALS_BASE_URL = "https://api.fplrivals.org/api/v1"
+
+FPL_RIVALS_SEARCH_LIMIT = 7
+FPL_RIVALS_TIMEOUT_SECONDS = 4.0
