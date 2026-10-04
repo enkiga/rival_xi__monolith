@@ -1,21 +1,23 @@
-import { CrownIcon } from "lucide-react";
+import { UserGroup } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { useGetMeEndpointApiV1AuthMeGet } from "@/api/auth/auth";
 import { useGetLeaguesEndpointApiV1LeaguesGet } from "@/api/leagues/leagues";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import SectionWrapper from "@/components/reusable/section-wrapper";
+import { Card } from "@/components/ui/card";
+import {
+	Pagination,
+	PaginationContent,
+	PaginationItem,
+	PaginationNext,
+	PaginationPrevious,
+} from "@/components/ui/pagination";
 import type { ApiError } from "@/config/api/api-error";
-import type {
-	AuthUserResponse,
-	LeagueListItemResponse,
-	LeagueListResponse,
-} from "@/types/schemas";
+import type { AuthUserResponse, LeagueListResponse } from "@/types/schemas";
+import LeagueCard from "./league-card";
+import LeagueDialog from "./league-dialog";
 
 const PAGE_SIZE = 10;
 const SKELETON_CARDS = ["first", "second", "third"];
-const SKELETON_STATS = ["rank", "gameweek", "members"];
 
 const LeagueList = () => {
 	const [page, setPage] = useState(1);
@@ -50,7 +52,7 @@ const LeagueList = () => {
 		return (
 			<div className="grid gap-4 lg:grid-cols-3">
 				{SKELETON_CARDS.map((card) => (
-					<LeagueListCard key={card} isLoading />
+					<LeagueCard key={card} isLoading />
 				))}
 			</div>
 		);
@@ -66,19 +68,27 @@ const LeagueList = () => {
 
 	if (!leaguesQuery.data.items.length) {
 		return (
-			<Card className="px-4">
-				<p className="text-sm text-muted-foreground">
-					You do not have any leagues yet.
-				</p>
-			</Card>
+			<SectionWrapper>
+				<Card className="px-4 border border-dashed border-fpl-pink flex flex-col lg:items-center text-center p-6">
+					<div className="bg-primary/50 p-4 rounded-full mx-auto">
+						<UserGroup />
+					</div>
+					<h3 className="text-3xl font-semibold">Ready to start a rivalry?</h3>
+					<p className="text-sm text-muted-foreground">
+						Create a new league and invite your friends to compete each game
+						week.
+					</p>
+					<LeagueDialog />
+				</Card>
+			</SectionWrapper>
 		);
 	}
 
 	return (
-		<div className="flex flex-col gap-4">
-			<div className="grid gap-4 lg:grid-cols-3">
+		<SectionWrapper className="flex flex-col gap-4">
+			<div className="flex flex-col gap-4">
 				{leaguesQuery.data.items.map((league) => (
-					<LeagueListCard
+					<LeagueCard
 						key={league.slug}
 						league={league}
 						isOwner={
@@ -90,98 +100,43 @@ const LeagueList = () => {
 			</div>
 
 			{leaguesQuery.data.pages > 1 && (
-				<div className="flex items-center justify-between gap-3">
-					<Button
-						variant="outline"
-						disabled={page === 1}
-						onClick={() => setPage((current) => Math.max(1, current - 1))}
-					>
-						Previous
-					</Button>
-					<span className="text-sm text-muted-foreground">
-						Page {page} of {leaguesQuery.data.pages}
-					</span>
-					<Button
-						variant="outline"
-						disabled={page >= leaguesQuery.data.pages}
-						onClick={() => setPage((current) => current + 1)}
-					>
-						Next
-					</Button>
-				</div>
+				<Pagination>
+					<PaginationContent className="w-full justify-between">
+						<PaginationItem>
+							<PaginationPrevious
+								href="#"
+								aria-disabled={page === 1}
+								className={page === 1 ? "pointer-events-none opacity-50" : ""}
+								onClick={(event) => {
+									event.preventDefault();
+									if (page > 1) {
+										setPage((current) => Math.max(1, current - 1));
+									}
+								}}
+							/>
+						</PaginationItem>
+						<PaginationItem>
+							<PaginationNext
+								href="#"
+								aria-disabled={page >= leaguesQuery.data.pages}
+								className={
+									page >= leaguesQuery.data.pages
+										? "pointer-events-none opacity-50"
+										: ""
+								}
+								onClick={(event) => {
+									event.preventDefault();
+									if (page < leaguesQuery.data.pages) {
+										setPage((current) => current + 1);
+									}
+								}}
+							/>
+						</PaginationItem>
+					</PaginationContent>
+				</Pagination>
 			)}
-		</div>
+		</SectionWrapper>
 	);
 };
-
-function LeagueListCard({
-	league,
-	isOwner,
-	isLoading = false,
-}: {
-	league?: LeagueListItemResponse;
-	isOwner?: boolean;
-	isLoading?: boolean;
-}) {
-	if (isLoading) {
-		return (
-			<Card className="h-36 rounded-none">
-				<CardHeader className="grid-cols-[1fr_auto]">
-					<Skeleton className="h-5 w-36" />
-					<Skeleton className="h-6 w-16" />
-				</CardHeader>
-				<CardContent className="flex justify-between gap-4">
-					{SKELETON_STATS.map((stat) => (
-						<div key={stat} className="space-y-2">
-							<Skeleton className="h-3 w-16" />
-							<Skeleton className="h-4 w-10" />
-						</div>
-					))}
-				</CardContent>
-			</Card>
-		);
-	}
-
-	if (!league) return null;
-
-	return (
-		<Link to={`/league/${league.slug}`} className="block">
-			<Card className="h-full transition-colors hover:ring-primary/50 rounded-none">
-				<CardHeader className="grid-cols-[1fr_auto]">
-					<CardTitle className="flex items-center gap-2">
-						{isOwner && (
-							<>
-								<CrownIcon className="size-4 text-primary" aria-hidden="true" />
-								<span className="sr-only">League owner</span>
-							</>
-						)}
-						{league.name}
-					</CardTitle>
-					<span className="rounded-sm bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
-						{league.status}
-					</span>
-				</CardHeader>
-				<CardContent className="flex flex-row gap-4 justify-between">
-					<div>
-						<p className="text-muted-foreground">Your rank</p>
-						<p className="font-semibold">{league.rank ?? "Unranked"}</p>
-					</div>
-					<div>
-						<p className="text-muted-foreground">Last gameweek</p>
-						<p className="font-semibold">
-							{league.last_scored_gameweek ?? "Not scored"}
-						</p>
-					</div>
-					<div>
-						<p className="text-muted-foreground">Members</p>
-						<p className="font-semibold">
-							{league.member_count}/{league.max_member_count}
-						</p>
-					</div>
-				</CardContent>
-			</Card>
-		</Link>
-	);
-}
 
 export default LeagueList;

@@ -25,6 +25,7 @@ import {
 	type LeagueCreate,
 	type LeagueDetailResponse,
 } from "@/types/schemas";
+import { PlusCircle } from "lucide-react";
 
 type Props = {
 	league?: LeagueDetailResponse;
@@ -143,12 +144,10 @@ const LeagueDialog = ({ league }: Props) => {
 		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger
 				render={
-					<Button
-						size={"lg"}
-						variant={editing ? "outline" : "default"}
-					/>
+					<Button size={"lg"} variant={editing ? "outline" : "default"} />
 				}
 			>
+				{!editing && <PlusCircle className="mr-1 size-4" />}
 				{editing ? "Edit league" : "Create League"}
 			</DialogTrigger>
 			<DialogContent className="sm:max-w-lg">
