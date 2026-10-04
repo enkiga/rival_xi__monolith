@@ -1,54 +1,48 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useGetMeEndpointApiV1AuthMeGet } from "@/api/auth/auth";
 import {
 	claimFplTeamEndpointApiV1OnboardingFplClaimPost,
 	previewFplTeamEndpointApiV1OnboardingFplPreviewPost,
+	searchFplManagersEndpointApiV1OnboardingFplSearchGet,
 } from "@/api/onboarding/onboarding";
-import AppForm from "@/components/reusable/form/app-form";
-import type { FormFieldConfig } from "@/components/reusable/form/types";
-import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
+import heroImage from "@/assets/hero.png";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/config/api/api-error";
 import AuthWrapper from "@/features/auth/components/auth-wrapper";
+import FplManualSearchForm from "@/features/auth/components/fpl-manual-search-form";
+import FplTeamPreview from "@/features/auth/components/fpl-team-preview";
+import FplTeamSearch, {
+	type SearchState,
+} from "@/features/auth/components/fpl-team-search";
 import type {
 	AuthUserResponse,
+	FPLManagerSearchResult,
 	FPLTeamLookupRequest,
 	FPLTeamPreviewResponse,
 } from "@/types/schemas";
+import PanelContent from "../components/panel-content";
+import { OnboardingContent } from "../components/content";
 
 const unwrapResponse = <T,>(response: T | { data: T }): T =>
 	"data" in (response as { data?: T })
 		? (response as { data: T }).data
 		: (response as T);
 
-const fields: FormFieldConfig<FPLTeamLookupRequest>[] = [
-	{
-		name: "reference",
-		type: "text",
-		label: "FPL team ID or URL",
-		placeholder: "Enter your FPL team ID or URL",
-		description: "You can find the team ID in your Fantasy Premier League URL.",
-		required: true,
-	},
-];
-
 const OnboardingPage = () => {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
-	const form = useForm<FPLTeamLookupRequest>({
+	const manualForm = useForm<FPLTeamLookupRequest>({
 		defaultValues: { reference: "" },
 	});
+	const [query, setQuery] = useState("");
+	const [results, setResults] = useState<FPLManagerSearchResult[]>([]);
+	const [searchState, setSearchState] = useState<SearchState>("idle");
+	const [showManual, setShowManual] = useState(false);
 	const [preview, setPreview] = useState<FPLTeamPreviewResponse | null>(null);
+	const [claimReference, setClaimReference] = useState("");
 	const [isPreviewing, setIsPreviewing] = useState(false);
 	const [isClaiming, setIsClaiming] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -60,14 +54,52 @@ const OnboardingPage = () => {
 		},
 	});
 
+	useEffect(() => {
+		const normalizedQuery = query.trim();
+
+		if (normalizedQuery.length < 3) {
+			return;
+		}
+
+		const controller = new AbortController();
+		const timer = window.setTimeout(async () => {
+			setSearchState("searching");
+
+			try {
+				const response =
+					await searchFplManagersEndpointApiV1OnboardingFplSearchGet(
+						normalizedQuery,
+						{ signal: controller.signal },
+					);
+
+				if (!response.search_available) {
+					setResults([]);
+					setSearchState("unavailable");
+					return;
+				}
+
+				setResults(response.results);
+				setSearchState(response.results.length > 0 ? "results" : "empty");
+			} catch {
+				if (!controller.signal.aborted) {
+					setResults([]);
+					setSearchState("unavailable");
+				}
+			}
+		}, 400);
+
+		return () => {
+			window.clearTimeout(timer);
+			controller.abort();
+		};
+	}, [query]);
+
 	if (userQuery.isPending) {
 		return (
-			<AuthWrapper>
-				<Card className="w-full max-w-md p-6">
-					<Skeleton className="mx-auto h-6 w-40" />
-					<Skeleton className="h-10 w-full" />
-					<Skeleton className="h-10 w-full" />
-				</Card>
+			<AuthWrapper className="flex min-h-144 flex-col justify-center gap-6">
+				<Skeleton className="mx-auto h-6 w-40" />
+				<Skeleton className="h-10 w-full" />
+				<Skeleton className="h-10 w-full" />
 			</AuthWrapper>
 		);
 	}
@@ -76,7 +108,7 @@ const OnboardingPage = () => {
 		return userQuery.error.status === 401 ? (
 			<Navigate to="/sign-in" replace />
 		) : (
-			<AuthWrapper>
+			<AuthWrapper className="flex min-h-144 flex-col justify-center">
 				<p className="text-sm text-destructive" role="alert">
 					{userQuery.error.message}
 				</p>
@@ -84,20 +116,18 @@ const OnboardingPage = () => {
 		);
 	}
 
-	if (!userQuery.data.onboarding_required) {
-		return <Navigate to="/" replace />;
-	}
+	if (!userQuery.data.onboarding_required) return <Navigate to="/" replace />;
 
-	const previewTeam = async (values: FPLTeamLookupRequest) => {
+	const previewTeam = async (reference: string) => {
 		setError(null);
-		setPreview(null);
 		setIsPreviewing(true);
 
 		try {
 			const response =
 				await previewFplTeamEndpointApiV1OnboardingFplPreviewPost({
-					reference: values.reference.trim(),
+					reference: reference.trim(),
 				});
+			setClaimReference(reference.trim());
 			setPreview(unwrapResponse(response as unknown as FPLTeamPreviewResponse));
 		} catch (previewError) {
 			setError(
@@ -117,7 +147,7 @@ const OnboardingPage = () => {
 		setIsClaiming(true);
 		try {
 			await claimFplTeamEndpointApiV1OnboardingFplClaimPost({
-				reference: form.getValues("reference").trim(),
+				reference: claimReference,
 			});
 			await queryClient.invalidateQueries({ queryKey: ["/api/v1/auth/me"] });
 			navigate("/", { replace: true });
@@ -133,58 +163,67 @@ const OnboardingPage = () => {
 	};
 
 	return (
-		<AuthWrapper>
-			<Card className="w-full max-w-md rounded-none p-6">
-				<CardHeader className="px-0 text-center">
-					<CardTitle>Claim your FPL team</CardTitle>
-					<CardDescription>
-						Link your Fantasy Premier League team to finish setting up your
-						account.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className="space-y-5 px-0">
-					<AppForm
-						form={form}
-						onSubmit={previewTeam}
-						fields={fields}
-						submitButtonText="Find team"
-						submittingButtonText="Finding team..."
-						isSubmitting={isPreviewing}
+		<AuthWrapper className="flex min-h-144 flex-col gap-6"
+		panelContent={
+				<PanelContent
+					title={OnboardingContent.title}
+					description={OnboardingContent.description}
+					features={OnboardingContent.features}
+				/>
+			}>
+			<div className="flex flex-col space-y-2 text-center md:text-start">
+				<img src={heroImage} alt="RivalXI" className="mx-auto w-40 md:hidden" />
+				<h1 className="text-3xl font-semibold text-card-foreground">
+					{preview ? "Is this your team?" : "Find your FPL team"}
+				</h1>
+				{!preview && (
+					<p className="mx-auto mt-2 max-w-2xs text-sm text-muted-foreground md:mx-0 md:max-w-full">
+						Search using your name or FPL team name.
+					</p>
+				)}
+			</div>
+			<div className="space-y-5">
+				{preview ? (
+					<FplTeamPreview
+						preview={preview}
+						isClaiming={isClaiming}
+						onClaim={claimTeam}
+						onReject={() => {
+							setPreview(null);
+							setError(null);
+						}}
 					/>
+				) : showManual ? (
+					<FplManualSearchForm
+						form={manualForm}
+						onSubmit={(values) => previewTeam(values.reference)}
+						isSubmitting={isPreviewing}
+						onBack={() => setShowManual(false)}
+					/>
+				) : (
+					<FplTeamSearch
+						query={query}
+						onQueryChange={(nextQuery) => {
+							setQuery(nextQuery);
 
-					{preview && (
-						<div className="space-y-4 border p-4">
-							<div>
-								<p className="font-semibold">{preview.team_name}</p>
-								<p className="text-sm text-muted-foreground">
-									{preview.manager_name} · Entry {preview.fpl_entry_id}
-								</p>
-							</div>
-							{preview.available ? (
-								<Button
-									type="button"
-									size="lg"
-									className="w-full"
-									onClick={claimTeam}
-									disabled={isClaiming}
-								>
-									{isClaiming ? "Claiming team..." : "Claim this team"}
-								</Button>
-							) : (
-								<p className="text-sm text-destructive">
-									This FPL team is already linked to another account.
-								</p>
-							)}
-						</div>
-					)}
-
-					{error && (
-						<p className="text-sm text-destructive" role="alert">
-							{error}
-						</p>
-					)}
-				</CardContent>
-			</Card>
+							if (nextQuery.trim().length < 3) {
+								setResults([]);
+								setSearchState("idle");
+							}
+						}}
+						searchState={searchState}
+						results={results}
+						isPreviewing={isPreviewing}
+						onSelect={(entryId) => previewTeam(entryId)}
+						onManualEntry={() => setShowManual(true)}
+					/>
+				)}
+				{error && (
+					<p className="text-sm text-destructive" role="alert">
+						{error}
+					</p>
+				)}
+			</div>
 		</AuthWrapper>
 	);
 };
