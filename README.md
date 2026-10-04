@@ -91,6 +91,7 @@ RivalXI is an actively developed portfolio MVP. The main sign-in, onboarding, le
 - [API guide](docs/api.md)
 - [Testing](docs/testing.md)
 - [Deployment](docs/deployment.md)
+- [Frontend SEO and social sharing](docs/SEO.md)
 - [Commit conventions](docs/commit-rules.md)
 
 ## Running locally
