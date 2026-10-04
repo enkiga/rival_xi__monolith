@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { CircleDashed } from "lucide-react";
 import { useGetMeEndpointApiV1AuthMeGet } from "@/api/auth/auth";
 import {
 	getGetLeagueEndpointApiV1LeaguesSlugGetQueryKey,
@@ -15,7 +16,6 @@ import {
 	LeagueMemberRole,
 	LeagueStatus,
 } from "@/types/schemas";
-import { CircleDashed } from "lucide-react";
 
 type Props = {
 	league: LeagueDetailResponse;
@@ -62,7 +62,6 @@ const LeagueActivate = ({ league }: Props) => {
 	}
 
 	return (
-		
 		<Card className="px-4 border border-dashed border-fpl-pink flex flex-col lg:items-center text-center p-6">
 			<div className="bg-primary/50 p-4 rounded-full mx-auto">
 				<CircleDashed />

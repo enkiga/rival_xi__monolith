@@ -17,6 +17,7 @@ import {
 } from "@/api/notifications/notifications";
 import SectionWrapper from "@/components/reusable/section-wrapper";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import type { ApiError } from "@/config/api/api-error";
 import type {
 	AuthUserResponse,
@@ -29,7 +30,6 @@ import GameweekSelect from "../components/gameweek-select";
 import LeagueActivate from "../components/league-activate";
 import LeagueHeader from "../components/league-header";
 import LeagueMembershipPending from "../components/league-membership-pending";
-import { Card } from "@/components/ui/card";
 
 const unwrapResponse = <T,>(response: T | { data: T }): T =>
 	"data" in (response as { data?: T })

@@ -4,6 +4,7 @@ import {
 	useGetLeagueEndpointApiV1LeaguesSlugGet,
 	useGetMemberGameweekEndpointApiV1LeaguesSlugGameweeksGameweekMembersMemberIdGet,
 } from "@/api/leagues/leagues";
+import SectionWrapper from "@/components/reusable/section-wrapper";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,7 +16,6 @@ import type {
 import BenchCard from "../components/bench-card";
 import TeamFieldView from "../components/team-field-view";
 import TeamSummary from "../components/team-summary";
-import SectionWrapper from "@/components/reusable/section-wrapper";
 
 const unwrapResponse = <T,>(response: T | { data: T }): T =>
 	"data" in (response as { data?: T })

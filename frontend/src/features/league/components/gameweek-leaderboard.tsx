@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, Crown, Minus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
 	Table,
@@ -14,7 +15,6 @@ import type {
 	GameweekStandingResponse,
 	LeagueDetailMemberResponse,
 } from "@/types/schemas";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 type Props = {
 	standings?: GameweekStandingResponse[];

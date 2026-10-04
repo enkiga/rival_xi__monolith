@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { PlusCircle } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -25,7 +26,6 @@ import {
 	type LeagueCreate,
 	type LeagueDetailResponse,
 } from "@/types/schemas";
-import { PlusCircle } from "lucide-react";
 
 type Props = {
 	league?: LeagueDetailResponse;

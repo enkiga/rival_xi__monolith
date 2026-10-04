@@ -1,8 +1,9 @@
 import { ArrowLeft } from "lucide-react";
 import { Link, useOutletContext, useSearchParams } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import type {
 	AuthUserResponse,
 	GameweekResultStatus,
@@ -10,7 +11,6 @@ import type {
 } from "@/types/schemas";
 import LeagueMembersDialogue from "./league-members-dialogue";
 import LeagueRulesDialogue from "./league-rules-dialogue";
-import { Card } from "@/components/ui/card";
 
 type Props = {
 	data?: LeagueDetailResponse;
@@ -71,7 +71,7 @@ const LeagueHeader = ({
 
 	return (
 		<>
-		<Link to="/">
+			<Link to="/">
 				<Button
 					size="lg"
 					variant="outline"
@@ -80,66 +80,65 @@ const LeagueHeader = ({
 					<ArrowLeft /> Back
 				</Button>
 			</Link>
-		
-		<Card className="flex flex-col  gap-4 p-6">
-			
-			<div className="flex  items-center justify-between">
-				<div className="flex min-w-0 items-center gap-4">
-					<Avatar className="size-14 shrink-0 border-0 after:border-0 sm:size-16">
-						<AvatarFallback className="rounded-sm bg-primary/60 text-lg font-semibold">
-							{initials}
-						</AvatarFallback>
-					</Avatar>
-					<div className="min-w-0">
-						<h2 className="truncate text-lg font-semibold sm:text-xl">
-							{data.name}
-						</h2>
-						<p className="mt-1 text-sm text-muted-foreground">
-							{data.members.length}{" "}
-							{data.members.length === 1 ? "member" : "members"}
-						</p>
+
+			<Card className="flex flex-col  gap-4 p-6">
+				<div className="flex  items-center justify-between">
+					<div className="flex min-w-0 items-center gap-4">
+						<Avatar className="size-14 shrink-0 border-0 after:border-0 sm:size-16">
+							<AvatarFallback className="rounded-sm bg-primary/60 text-lg font-semibold">
+								{initials}
+							</AvatarFallback>
+						</Avatar>
+						<div className="min-w-0">
+							<h2 className="truncate text-lg font-semibold sm:text-xl">
+								{data.name}
+							</h2>
+							<p className="mt-1 text-sm text-muted-foreground">
+								{data.members.length}{" "}
+								{data.members.length === 1 ? "member" : "members"}
+							</p>
+						</div>
+					</div>
+					<div className="hidden lg:flex flex-col items-center gap-2">
+						{isDraft ? (
+							<span
+								className={`rounded-sm px-2 py-1 text-xs font-semibold ${badgeStyles.DRAFT}`}
+							>
+								Draft
+							</span>
+						) : (
+							<>
+								{gameweek !== undefined && (
+									<p className="font-semibold">Gameweek {gameweek}</p>
+								)}
+								{gameweekStatus && (
+									<span
+										className={`rounded-sm px-2 py-1 text-xs font-semibold ${badgeStyles[gameweekStatus]}`}
+									>
+										{gameweekStatus}
+									</span>
+								)}
+							</>
+						)}
+					</div>
+					<div className="flex flex-wrap items-center justify-between gap-4">
+						<div className="flex items-center gap-2">
+							<LeagueMembersDialogue
+								members={data.members}
+								slug={data.slug}
+								isOwner={isOwner}
+								open={activeDialog === "members"}
+								onOpenChange={(open) => setActiveDialog("members", open)}
+							/>
+							<LeagueRulesDialogue
+								rules={data.rules}
+								open={activeDialog === "rules"}
+								onOpenChange={(open) => setActiveDialog("rules", open)}
+							/>
+						</div>
 					</div>
 				</div>
-				<div className="hidden lg:flex flex-col items-center gap-2">
-					{isDraft ? (
-						<span
-							className={`rounded-sm px-2 py-1 text-xs font-semibold ${badgeStyles.DRAFT}`}
-						>
-							Draft
-						</span>
-					) : (
-						<>
-							{gameweek !== undefined && (
-								<p className="font-semibold">Gameweek {gameweek}</p>
-							)}
-							{gameweekStatus && (
-								<span
-									className={`rounded-sm px-2 py-1 text-xs font-semibold ${badgeStyles[gameweekStatus]}`}
-								>
-									{gameweekStatus}
-								</span>
-							)}
-						</>
-					)}
-				</div>
-				<div className="flex flex-wrap items-center justify-between gap-4">
-					<div className="flex items-center gap-2">
-						<LeagueMembersDialogue
-							members={data.members}
-							slug={data.slug}
-							isOwner={isOwner}
-							open={activeDialog === "members"}
-							onOpenChange={(open) => setActiveDialog("members", open)}
-						/>
-						<LeagueRulesDialogue
-							rules={data.rules}
-							open={activeDialog === "rules"}
-							onOpenChange={(open) => setActiveDialog("rules", open)}
-						/>
-					</div>
-				</div>
-			</div>
-		</Card>
+			</Card>
 		</>
 	);
 };
