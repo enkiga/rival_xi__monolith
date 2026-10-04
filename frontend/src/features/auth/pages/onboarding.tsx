@@ -19,12 +19,13 @@ import FplTeamSearch, {
 } from "@/features/auth/components/fpl-team-search";
 import type {
 	AuthUserResponse,
+	FPLManagerSearchResponse,
 	FPLManagerSearchResult,
 	FPLTeamLookupRequest,
 	FPLTeamPreviewResponse,
 } from "@/types/schemas";
-import PanelContent from "../components/panel-content";
 import { OnboardingContent } from "../components/content";
+import PanelContent from "../components/panel-content";
 
 const unwrapResponse = <T,>(response: T | { data: T }): T =>
 	"data" in (response as { data?: T })
@@ -66,11 +67,16 @@ const OnboardingPage = () => {
 			setSearchState("searching");
 
 			try {
-				const response =
+				const result =
 					await searchFplManagersEndpointApiV1OnboardingFplSearchGet(
-						normalizedQuery,
+						{ q: normalizedQuery },
 						{ signal: controller.signal },
 					);
+
+				if (controller.signal.aborted) return;
+				const response = unwrapResponse(
+					result as unknown as FPLManagerSearchResponse,
+				);
 
 				if (!response.search_available) {
 					setResults([]);
@@ -163,14 +169,16 @@ const OnboardingPage = () => {
 	};
 
 	return (
-		<AuthWrapper className="flex min-h-144 flex-col gap-6"
-		panelContent={
+		<AuthWrapper
+			className="flex min-h-144 flex-col gap-6"
+			panelContent={
 				<PanelContent
 					title={OnboardingContent.title}
 					description={OnboardingContent.description}
 					features={OnboardingContent.features}
 				/>
-			}>
+			}
+		>
 			<div className="flex flex-col space-y-2 text-center md:text-start">
 				<img src={heroImage} alt="RivalXI" className="mx-auto w-40 md:hidden" />
 				<h1 className="text-3xl font-semibold text-card-foreground">

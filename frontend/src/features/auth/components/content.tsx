@@ -7,7 +7,6 @@ import {
 	UserGroup,
 	UserShield,
 } from "lucide-react";
-import heroImage from "@/assets/hero.png";
 
 export const signInContent = {
 	title: "Private FPL leagues for real rivalries",
