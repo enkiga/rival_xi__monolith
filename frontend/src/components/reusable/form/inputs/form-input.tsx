@@ -57,7 +57,7 @@ const FormInput = <TFieldValues extends FieldValues>(
 				required={fieldConfig.required}
 				disabled={fieldConfig.disabled || isSubmitting}
 				className={cn(
-					"h-10 rounded-sm bg-card",
+					"min-h-10 rounded-sm bg-card",
 					leftIcon ? "pl-10" : "",
 					rightIcon || isPasswordType ? "pr-10" : "",
 					fieldConfig.inputClassName,
