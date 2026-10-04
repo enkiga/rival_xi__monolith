@@ -132,6 +132,8 @@ async def notify_membership_approved(
     league_id: int,
     league_slug: str,
     league_name: str,
+    member_count: int,
+    max_member_count: int,
 ) -> Notification:
     return await create_notification(
         db=db,
@@ -142,6 +144,9 @@ async def notify_membership_approved(
         data={
             "league_id": league_id,
             "league_slug": league_slug,
+            "league_name": league_name,
+            "member_count": member_count,
+            "max_member_count": max_member_count,
         },
     )
 
@@ -153,6 +158,8 @@ async def notify_membership_rejected(
     league_id: int,
     league_slug: str,
     league_name: str,
+    member_count: int,
+    max_member_count: int,
 ) -> Notification:
     return await create_notification(
         db=db,
@@ -166,6 +173,9 @@ async def notify_membership_rejected(
         data={
             "league_id": league_id,
             "league_slug": league_slug,
+            "league_name": league_name,
+            "member_count": member_count,
+            "max_member_count": max_member_count,
         },
     )
 
@@ -282,14 +292,19 @@ async def deliver_notification_email(
             return True
 
         subject = notification.title
-        body = notification.body
+        data = notification.data
+        approved = notification.type == NotificationType.MEMBERSHIP_APPROVED
 
     # SMTP happens with no DB transaction open.
     try:
         await send_notification_email(
             email=email,
             subject=subject,
-            body=body,
+            approved=approved,
+            league_name=data["league_name"],
+            league_slug=data["league_slug"],
+            member_count=data["member_count"],
+            max_member_count=data["max_member_count"],
         )
 
     except EmailDeliveryError:
