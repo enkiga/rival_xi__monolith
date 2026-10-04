@@ -101,15 +101,13 @@ const FplTeamSearch = ({
 				</p>
 			)}
 		</div>
-		<div >
+		<div>
 			<Separator className="my-4 bg-white" />
 			<div className="flex flex-col lg:flex-row justify-between items-center w-full gap-3">
 				<div className="flex flex-row gap-2 items-center w-full">
 					<Info className="text-muted-foreground size-6" />
 					<div className="flex flex-col items-start gap-1">
-						<p className="font-semibold">
-							Can&apos;t find your team?
-						</p>
+						<p className="font-semibold">Can&apos;t find your team?</p>
 						<p className="text-muted-foreground text-sm">
 							Use your FPL Team ID instead.
 						</p>

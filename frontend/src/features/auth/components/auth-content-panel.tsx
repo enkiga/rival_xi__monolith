@@ -7,7 +7,9 @@ type Props = {
 };
 
 const AuthContentPanel = ({ children, className }: Props) => (
-	<div className={cn("relative hidden min-h-144 md:block border-r ", className)}>
+	<div
+		className={cn("relative hidden min-h-144 md:block border-r ", className)}
+	>
 		{children}
 	</div>
 );

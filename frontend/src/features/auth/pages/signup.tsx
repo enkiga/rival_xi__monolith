@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { signInContent } from "../components/content";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { requestOtpEndpointApiV1AuthOtpRequestPost } from "@/api/auth/auth";
@@ -10,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { ApiError } from "@/config/api/api-error";
 import type { OTPRequest } from "@/types/schemas";
 import AuthWrapper from "../components/auth-wrapper";
+import { signInContent } from "../components/content";
 import PanelContent from "../components/panel-content";
 
 const OTP_EMAIL_STORAGE_KEY = "rivalxi_otp_email";

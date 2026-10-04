@@ -9,8 +9,8 @@ import { Separator } from "@/components/ui/separator";
 import { ApiError } from "@/config/api/api-error";
 import type { OTPVerifyRequest, OTPVerifyResponse } from "@/types/schemas";
 import AuthWrapper from "../components/auth-wrapper";
-import PanelContent from "../components/panel-content";
 import { signInContent } from "../components/content";
+import PanelContent from "../components/panel-content";
 
 const OTP_EMAIL_STORAGE_KEY = "rivalxi_otp_email";
 
