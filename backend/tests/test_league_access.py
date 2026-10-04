@@ -9,6 +9,8 @@ from app.models.league_member import (
     LeagueMemberStatus,
 )
 from app.schemas.league import LeagueUpdate
+from app.schemas.gameweek import LeagueGameweekResponse
+from app.models.gameweek_result import GameweekResultStatus
 from app.services import gameweek
 from app.services import league as league_service
 from app.services.league_access import (
@@ -80,6 +82,44 @@ class LeagueAccessTests(IsolatedAsyncioTestCase):
                 )
 
             get_cached.assert_not_awaited()
+
+    async def test_gameweek_standings_returns_cached_response(self):
+        cached = LeagueGameweekResponse(
+            league_slug="private-league",
+            gameweek=1,
+            status=GameweekResultStatus.FINAL,
+            standings=[],
+        )
+        db = SimpleNamespace(
+            scalar=AsyncMock(
+                side_effect=[
+                    SimpleNamespace(id=1),
+                    SimpleNamespace(start_gameweek=1),
+                ]
+            )
+        )
+
+        with (
+            patch.object(
+                gameweek,
+                "require_approved_league_member",
+                new_callable=AsyncMock,
+            ),
+            patch.object(
+                gameweek,
+                "get_cached_model",
+                new_callable=AsyncMock,
+                return_value=cached,
+            ),
+        ):
+            response = await gameweek.get_league_gameweek(
+                db=db,
+                slug="private-league",
+                gameweek=1,
+                user_id=2,
+            )
+
+        self.assertIs(response, cached)
 
     async def test_league_member_visibility_depends_on_viewer_role(self):
         league = SimpleNamespace(

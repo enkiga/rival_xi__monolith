@@ -35,6 +35,8 @@ class LeagueListingRouteTests(TestCase):
         empty_page = LeagueListResponse(
             items=[],
             total=0,
+            active_count=0,
+            draft_count=0,
             page=2,
             page_size=10,
             pages=0,
@@ -71,11 +73,16 @@ class LeagueListingRouteTests(TestCase):
 
 class LeagueListingServiceTests(IsolatedAsyncioTestCase):
     async def test_empty_listing_returns_pagination_metadata(self):
+        counts = Mock()
+        counts.one.return_value = SimpleNamespace(
+            total=0,
+            active_count=0,
+            draft_count=0,
+        )
         rows = Mock()
         rows.all.return_value = []
         db = SimpleNamespace(
-            scalar=AsyncMock(return_value=0),
-            execute=AsyncMock(return_value=rows),
+            execute=AsyncMock(side_effect=[counts, rows]),
         )
 
         response = await get_user_leagues(
@@ -90,6 +97,8 @@ class LeagueListingServiceTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(response.items, [])
         self.assertEqual(response.total, 0)
+        self.assertEqual(response.active_count, 0)
+        self.assertEqual(response.draft_count, 0)
         self.assertEqual(response.page, 3)
         self.assertEqual(response.page_size, 20)
         self.assertEqual(response.pages, 0)
@@ -100,11 +109,16 @@ class LeagueListingServiceTests(IsolatedAsyncioTestCase):
         self.assertIn(40, parameters)
 
     async def test_listing_searches_by_name(self):
+        counts = Mock()
+        counts.one.return_value = SimpleNamespace(
+            total=0,
+            active_count=0,
+            draft_count=0,
+        )
         rows = Mock()
         rows.all.return_value = []
         db = SimpleNamespace(
-            scalar=AsyncMock(return_value=0),
-            execute=AsyncMock(return_value=rows),
+            execute=AsyncMock(side_effect=[counts, rows]),
         )
 
         await get_user_leagues(
@@ -117,7 +131,7 @@ class LeagueListingServiceTests(IsolatedAsyncioTestCase):
             sort_order="asc",
         )
 
-        count_query = db.scalar.await_args.args[0]
+        count_query = db.execute.await_args_list[0].args[0]
         self.assertIn("lower(leagues.name) LIKE lower", str(count_query))
         self.assertIn("%rivals%", count_query.compile().params.values())
 
@@ -162,13 +176,42 @@ class LeagueListingServiceTests(IsolatedAsyncioTestCase):
             SimpleNamespace(
                 league_id=10,
                 gameweek=6,
+                result_gameweek=6,
                 league_member_id=2,
                 rank=3,
-            )
+                scoreboard_points=54,
+                fpl_entry_id=200,
+                team_name="Viewer FC",
+            ),
+            SimpleNamespace(
+                league_id=10,
+                gameweek=6,
+                result_gameweek=6,
+                league_member_id=1,
+                rank=1,
+                scoreboard_points=72,
+                fpl_entry_id=100,
+                team_name="Owner FC",
+            ),
+            SimpleNamespace(
+                league_id=10,
+                gameweek=6,
+                result_gameweek=5,
+                league_member_id=2,
+                rank=5,
+                scoreboard_points=40,
+                fpl_entry_id=200,
+                team_name="Viewer FC",
+            ),
         ]
+        counts = Mock()
+        counts.one.return_value = SimpleNamespace(
+            total=2,
+            active_count=1,
+            draft_count=1,
+        )
         db = SimpleNamespace(
-            scalar=AsyncMock(return_value=2),
-            execute=AsyncMock(side_effect=[page_rows, standing_rows]),
+            execute=AsyncMock(side_effect=[counts, page_rows, standing_rows]),
         )
 
         response = await get_user_leagues(
@@ -182,10 +225,21 @@ class LeagueListingServiceTests(IsolatedAsyncioTestCase):
         )
 
         active, draft = response.items
+        self.assertEqual(response.total, 2)
+        self.assertEqual(response.active_count, 1)
+        self.assertEqual(response.draft_count, 1)
         self.assertEqual(active.member_count, 8)
         self.assertEqual(active.max_member_count, 20)
         self.assertEqual(active.last_scored_gameweek, 6)
         self.assertEqual(active.rank, 3)
+        self.assertEqual(active.rank_change, 2)
+        self.assertEqual(active.last_scored_gameweek_points, 54)
+        self.assertEqual(active.gameweek_leader_team_name, "Owner FC")
+        self.assertEqual(active.gameweek_leader_points, 72)
+        self.assertEqual(active.gameweek_leader_fpl_entry_id, 100)
         self.assertEqual(draft.member_count, 1)
         self.assertIsNone(draft.last_scored_gameweek)
         self.assertIsNone(draft.rank)
+        self.assertIsNone(draft.rank_change)
+        self.assertIsNone(draft.last_scored_gameweek_points)
+        self.assertIsNone(draft.gameweek_leader_team_name)

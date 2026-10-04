@@ -283,14 +283,23 @@ async def get_user_leagues(
     if normalized_search:
         filters.append(League.name.ilike(f"%{normalized_search}%"))
 
-    total = await db.scalar(
-        select(func.count(League.id))
+    counts_result = await db.execute(
+        select(
+            func.count(League.id).label("total"),
+            func.count(League.id)
+            .filter(League.status == LeagueStatus.ACTIVE)
+            .label("active_count"),
+            func.count(League.id)
+            .filter(League.status == LeagueStatus.DRAFT)
+            .label("draft_count"),
+        )
         .join(
             membership,
             membership.league_id == League.id,
         )
         .where(*filters)
     )
+    counts = counts_result.one()
 
     sort_column = League.name if sort_by == "name" else League.created_at
     ordering = sort_column.asc() if sort_order == "asc" else sort_column.desc()
@@ -320,7 +329,7 @@ async def get_user_leagues(
     )
 
     rows = result.all()
-    total_count = total or 0
+    total_count = counts.total or 0
 
     ranked_league_members = {
         league.id: viewer.id
@@ -330,6 +339,9 @@ async def get_user_leagues(
     }
     last_gameweeks: dict[int, int] = {}
     ranks: dict[int, int] = {}
+    previous_ranks: dict[int, int] = {}
+    last_gameweek_points: dict[int, int] = {}
+    gameweek_leaders: dict[int, tuple[str, int, int]] = {}
 
     if ranked_league_members:
         latest_gameweeks = (
@@ -344,10 +356,15 @@ async def get_user_leagues(
         ranked_results = (
             select(
                 GameweekResult.league_id.label("league_id"),
+                GameweekResult.gameweek.label("gameweek"),
                 GameweekResult.league_member_id.label("league_member_id"),
+                GameweekResult.scoreboard_points.label("scoreboard_points"),
                 func.rank()
                 .over(
-                    partition_by=GameweekResult.league_id,
+                    partition_by=(
+                        GameweekResult.league_id,
+                        GameweekResult.gameweek,
+                    ),
                     order_by=(
                         GameweekResult.scoreboard_points.desc(),
                         case(
@@ -359,33 +376,69 @@ async def get_user_leagues(
                 )
                 .label("rank"),
             )
-            .join(
-                latest_gameweeks,
-                (latest_gameweeks.c.league_id == GameweekResult.league_id)
-                & (latest_gameweeks.c.gameweek == GameweekResult.gameweek),
+            .where(
+                GameweekResult.league_id.in_(ranked_league_members),
+                GameweekResult.eligible.is_(True),
             )
-            .where(GameweekResult.eligible.is_(True))
             .subquery()
         )
         standings_result = await db.execute(
             select(
                 latest_gameweeks.c.league_id,
                 latest_gameweeks.c.gameweek,
+                ranked_results.c.gameweek.label("result_gameweek"),
                 ranked_results.c.league_member_id,
                 ranked_results.c.rank,
-            ).outerjoin(
+                ranked_results.c.scoreboard_points,
+                LeagueMember.fpl_entry_id,
+                FPLAccount.team_name,
+            )
+            .outerjoin(
                 ranked_results,
-                ranked_results.c.league_id == latest_gameweeks.c.league_id,
+                (ranked_results.c.league_id == latest_gameweeks.c.league_id)
+                & (
+                    (ranked_results.c.gameweek == latest_gameweeks.c.gameweek)
+                    | (
+                        ranked_results.c.gameweek
+                        == latest_gameweeks.c.gameweek - 1
+                    )
+                ),
+            )
+            .outerjoin(
+                LeagueMember,
+                LeagueMember.id == ranked_results.c.league_member_id,
+            )
+            .outerjoin(
+                FPLAccount,
+                FPLAccount.fpl_entry_id == LeagueMember.fpl_entry_id,
             )
         )
 
         for standing in standings_result.all():
             last_gameweeks[standing.league_id] = standing.gameweek
-            if (
+            is_current_user = (
                 standing.league_member_id
                 == ranked_league_members[standing.league_id]
-            ):
+            )
+            is_latest_gameweek = standing.result_gameweek == standing.gameweek
+
+            if is_current_user and is_latest_gameweek:
                 ranks[standing.league_id] = standing.rank
+                last_gameweek_points[standing.league_id] = (
+                    standing.scoreboard_points
+                )
+            elif (
+                is_current_user
+                and standing.result_gameweek == standing.gameweek - 1
+            ):
+                previous_ranks[standing.league_id] = standing.rank
+
+            if is_latest_gameweek and standing.rank == 1:
+                gameweek_leaders[standing.league_id] = (
+                    standing.team_name,
+                    standing.scoreboard_points,
+                    standing.fpl_entry_id,
+                )
 
     return LeagueListResponse(
         items=[
@@ -398,10 +451,33 @@ async def get_user_leagues(
                 max_member_count=MAX_LEAGUE_MEMBERS,
                 last_scored_gameweek=last_gameweeks.get(league.id),
                 rank=ranks.get(league.id),
+                rank_change=(
+                    previous_ranks[league.id] - ranks[league.id]
+                    if league.id in previous_ranks and league.id in ranks
+                    else None
+                ),
+                last_scored_gameweek_points=last_gameweek_points.get(league.id),
+                gameweek_leader_team_name=(
+                    gameweek_leaders[league.id][0]
+                    if league.id in gameweek_leaders
+                    else None
+                ),
+                gameweek_leader_points=(
+                    gameweek_leaders[league.id][1]
+                    if league.id in gameweek_leaders
+                    else None
+                ),
+                gameweek_leader_fpl_entry_id=(
+                    gameweek_leaders[league.id][2]
+                    if league.id in gameweek_leaders
+                    else None
+                ),
             )
             for league, league_owner, _, member_count in rows
         ],
         total=total_count,
+        active_count=counts.active_count or 0,
+        draft_count=counts.draft_count or 0,
         page=page,
         page_size=page_size,
         pages=(total_count + page_size - 1) // page_size,
@@ -630,6 +706,8 @@ async def approve_league_member(
                 league_id=league.id,
                 league_slug=league.slug,
                 league_name=league.name,
+                member_count=approved_count + 1,
+                max_member_count=MAX_LEAGUE_MEMBERS,
             )
             notification_id = notification.id
 
@@ -682,6 +760,13 @@ async def reject_league_member(
         member.approved_at = None
         member.scoring_start_gameweek = None
 
+        approved_count = await db.scalar(
+            select(func.count(LeagueMember.id)).where(
+                LeagueMember.league_id == league.id,
+                LeagueMember.status == LeagueMemberStatus.APPROVED,
+            )
+        )
+
         if member.user_id is not None:
             notification = await notify_membership_rejected(
                 db=db,
@@ -689,6 +774,8 @@ async def reject_league_member(
                 league_id=league.id,
                 league_slug=league.slug,
                 league_name=league.name,
+                member_count=approved_count or 0,
+                max_member_count=MAX_LEAGUE_MEMBERS,
             )
             notification_id = notification.id
 

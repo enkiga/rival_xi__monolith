@@ -86,11 +86,18 @@ class LeagueListItemResponse(BaseModel):
     max_member_count: int
     last_scored_gameweek: int | None
     rank: int | None
+    rank_change: int | None
+    last_scored_gameweek_points: int | None
+    gameweek_leader_team_name: str | None
+    gameweek_leader_points: int | None
+    gameweek_leader_fpl_entry_id: int | None
 
 
 class LeagueListResponse(BaseModel):
     items: list[LeagueListItemResponse]
     total: int
+    active_count: int
+    draft_count: int
     page: int
     page_size: int
     pages: int
