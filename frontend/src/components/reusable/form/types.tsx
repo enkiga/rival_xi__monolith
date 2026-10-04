@@ -65,6 +65,8 @@ export interface OTPFieldConfig<TFieldValues extends FieldValues>
 	pattern?: string;
 	inputMode?: "numeric" | "text";
 	autoComplete?: HTMLInputAutoCompleteAttribute;
+	/** Automatically submit the form once all slots are filled. */
+	autoSubmit?: boolean;
 }
 
 export type FormFieldConfig<TFieldValues extends FieldValues> =

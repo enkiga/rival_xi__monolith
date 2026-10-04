@@ -80,6 +80,7 @@ const AppForm = <TFieldValues extends FieldValues>({
 				fieldsClassName={fieldsClassName}
 				passwordVisibility={passwordVisibility}
 				togglePassword={togglePassword}
+				onOtpComplete={() => form.handleSubmit(onSubmit)()}
 			/>
 
 			<Button
@@ -109,6 +110,7 @@ export function AppFormFields<TFieldValues extends FieldValues>({
 	disabled,
 	passwordVisibility = {},
 	togglePassword,
+	onOtpComplete,
 }: {
 	form: UseFormReturn<TFieldValues>;
 	fields: FormFieldConfig<TFieldValues>[];
@@ -116,6 +118,7 @@ export function AppFormFields<TFieldValues extends FieldValues>({
 	fieldsClassName?: string;
 	passwordVisibility?: Partial<Record<Path<TFieldValues>, boolean>>;
 	togglePassword?: (fieldName: Path<TFieldValues>) => void;
+	onOtpComplete?: (value: string) => void;
 }) {
 	const toFieldErrors = (error: ReactHookFormFieldError | undefined) => {
 		if (!error) {
@@ -190,6 +193,7 @@ export function AppFormFields<TFieldValues extends FieldValues>({
 									disabled,
 									passwordVisibility,
 									togglePassword,
+									onOtpComplete,
 								})}
 
 								{isToggleType && (
@@ -234,12 +238,14 @@ function renderAppFormInput<TFieldValues extends FieldValues>({
 	disabled,
 	passwordVisibility,
 	togglePassword,
+	onOtpComplete,
 }: {
 	fieldConfig: FormFieldConfig<TFieldValues>;
 	field: ControllerRenderProps<TFieldValues, Path<TFieldValues>>;
 	disabled?: boolean;
 	passwordVisibility: Partial<Record<Path<TFieldValues>, boolean>>;
 	togglePassword?: (fieldName: Path<TFieldValues>) => void;
+	onOtpComplete?: (value: string) => void;
 }) {
 	const isSubmitting = Boolean(disabled);
 
@@ -288,6 +294,7 @@ function renderAppFormInput<TFieldValues extends FieldValues>({
 					fieldConfig={fieldConfig}
 					field={field}
 					isSubmitting={isSubmitting}
+					onComplete={onOtpComplete}
 				/>
 			);
 		default:

@@ -1,11 +1,9 @@
 import { REGEXP_ONLY_DIGITS } from "input-otp";
-import { Fragment } from "react";
 import type { ControllerRenderProps, FieldValues, Path } from "react-hook-form";
 import type { OTPFieldConfig } from "@/components/reusable/form/types";
 import {
 	InputOTP,
 	InputOTPGroup,
-	InputOTPSeparator,
 	InputOTPSlot,
 } from "@/components/ui/input-otp";
 import { cn } from "@/lib/utils";
@@ -14,12 +12,14 @@ type Props<TFieldValues extends FieldValues> = {
 	fieldConfig: OTPFieldConfig<TFieldValues>;
 	field: ControllerRenderProps<TFieldValues, Path<TFieldValues>>;
 	isSubmitting: boolean;
+	onComplete?: (value: string) => void;
 };
 
 const FormOTPInput = <TFieldValues extends FieldValues>({
 	fieldConfig,
 	field,
 	isSubmitting,
+	onComplete,
 }: Props<TFieldValues>) => {
 	const maxLength = fieldConfig.maxLength ?? 6;
 	const slots = Array.from({ length: maxLength }, (_, index) => ({
@@ -39,16 +39,15 @@ const FormOTPInput = <TFieldValues extends FieldValues>({
 			placeholder={fieldConfig.placeholder}
 			disabled={fieldConfig.disabled || isSubmitting}
 			containerClassName={cn("justify-center", fieldConfig.inputClassName)}
+			onComplete={fieldConfig.autoSubmit && onComplete ? onComplete : undefined}
 		>
-			<InputOTPGroup>
+			<InputOTPGroup className="w-full gap-2 lg:gap-4">
 				{slots.map((slot) => (
-					<Fragment key={slot.id}>
-						<InputOTPSlot
-							index={slot.index}
-							className="min-h-10 min-w-10 rounded-lg border"
-						/>
-						{slot.index < maxLength - 1 && <InputOTPSeparator />}
-					</Fragment>
+					<InputOTPSlot
+						key={slot.id}
+						index={slot.index}
+						className="aspect-2/3 min-h-12 lg:min-h-15 w-fit flex-1 rounded-lg border"
+					/>
 				))}
 			</InputOTPGroup>
 		</InputOTP>

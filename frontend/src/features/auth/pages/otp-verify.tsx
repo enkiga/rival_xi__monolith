@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { verifyOtpEndpointApiV1AuthOtpVerifyPost } from "@/api/auth/auth";
+import heroImage from "@/assets/hero.png";
 import AppForm from "@/components/reusable/form/app-form";
 import type { FormFieldConfig } from "@/components/reusable/form/types";
-import { Card } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { ApiError } from "@/config/api/api-error";
 import type { OTPVerifyRequest, OTPVerifyResponse } from "@/types/schemas";
 import AuthWrapper from "../components/auth-wrapper";
+import PanelContent from "../components/panel-content";
+import { signInContent } from "../components/content";
 
 const OTP_EMAIL_STORAGE_KEY = "rivalxi_otp_email";
 
@@ -34,6 +37,7 @@ const OTPVerifyPage = () => {
 			description: "Enter the six-digit code sent to your email.",
 			maxLength: 6,
 			required: true,
+			autoSubmit: true,
 		},
 	];
 
@@ -76,14 +80,28 @@ const OTPVerifyPage = () => {
 	};
 
 	return (
-		<AuthWrapper>
-			<Card className="w-full max-w-md rounded-none p-6">
-				<div className="mb-3 flex flex-col items-center space-y-2 text-center">
-					<h1 className="text-xl font-bold text-card-foreground">
-						Verify your email
+		<AuthWrapper
+			className="flex min-h-144 flex-col justify-between gap-6"
+			panelContent={
+				<PanelContent
+					title={signInContent.title}
+					description={signInContent.description}
+					features={signInContent.features}
+				/>
+			}
+		>
+			<div className="flex flex-col gap-6">
+				<div className="mb-3 flex flex-col space-y-2">
+					<img
+						src={heroImage}
+						alt="RivalXI"
+						className="mx-auto w-40 md:hidden"
+					/>
+					<h1 className="text-center text-3xl font-semibold text-card-foreground md:text-start">
+						Check your email
 					</h1>
-					<p className="text-sm text-muted-foreground">
-						We sent a verification code to {email}.
+					<p className="mx-auto mt-2 max-w-2xs text-center text-sm text-muted-foreground md:mx-0 md:max-w-full md:text-start">
+						We sent a 6-digit verification code to {email}.
 					</p>
 				</div>
 
@@ -91,7 +109,7 @@ const OTPVerifyPage = () => {
 					form={form}
 					onSubmit={handleSubmit}
 					fields={fields}
-					submitButtonText="Verify code"
+					submitButtonText="Verify Code"
 					submittingButtonText="Verifying..."
 					secondarySection={
 						verifyError ? (
@@ -101,7 +119,20 @@ const OTPVerifyPage = () => {
 						) : null
 					}
 				/>
-			</Card>
+			</div>
+			<div className="mt-4">
+				<Separator className="my-4" />
+				<p className="text-center text-sm text-muted-foreground md:text-start">
+					Didn&apos;t receive the code? Check your spam folder. <br />
+					<Link
+						to="/sign-in"
+						onClick={() => sessionStorage.removeItem(OTP_EMAIL_STORAGE_KEY)}
+						className="text-primary underline underline-offset-2"
+					>
+						Try another email
+					</Link>
+				</p>
+			</div>
 		</AuthWrapper>
 	);
 };
