@@ -9,6 +9,8 @@ import type { LeagueListItemResponse } from './leagueListItemResponse';
 export interface LeagueListResponse {
   items: LeagueListItemResponse[];
   total: number;
+  active_count: number;
+  draft_count: number;
   page: number;
   page_size: number;
   pages: number;

@@ -16,4 +16,9 @@ export interface LeagueListItemResponse {
   max_member_count: number;
   last_scored_gameweek: number | null;
   rank: number | null;
+  rank_change: number | null;
+  last_scored_gameweek_points: number | null;
+  gameweek_leader_team_name: string | null;
+  gameweek_leader_points: number | null;
+  gameweek_leader_fpl_entry_id: number | null;
 }

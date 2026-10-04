@@ -12,6 +12,7 @@ export interface FPLGameweekPickResponse {
   team_id: number;
   team_name: string;
   team_short_name: string;
+  kit_url: string;
   player_position: FPLPlayerPosition;
   squad_position: number;
   is_starter: boolean;
