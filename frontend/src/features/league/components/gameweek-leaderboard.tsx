@@ -1,18 +1,5 @@
-import {
-	columnVisibilityFeature,
-	createColumnHelper,
-	createSortedRowModel,
-	rowSortingFeature,
-	type SortingState,
-	sortFn_alphanumeric,
-	sortFn_basic,
-	tableFeatures,
-	useTable,
-} from "@tanstack/react-table";
-import { ArrowUpDown, Crown } from "lucide-react";
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import { ArrowDown, ArrowUp, Crown, Minus } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
 	Table,
@@ -22,14 +9,16 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import type {
 	GameweekStandingResponse,
 	LeagueDetailMemberResponse,
 } from "@/types/schemas";
-import GameweekTeamDialogue from "./gameweek-team-dialogue";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 type Props = {
 	standings?: GameweekStandingResponse[];
+	previousStandings?: GameweekStandingResponse[];
 	members?: LeagueDetailMemberResponse[];
 	currentUserEntryId?: number;
 	leagueSlug?: string;
@@ -37,174 +26,81 @@ type Props = {
 	isLoading?: boolean;
 };
 
-type LeaderboardRow = GameweekStandingResponse & {
-	teamName: string;
-	managerName: string;
-	leagueSlug: string;
-	gameweek: number;
+const RankMovement = ({
+	standing,
+	previousStandings,
+}: {
+	standing: GameweekStandingResponse;
+	previousStandings: GameweekStandingResponse[];
+}) => {
+	const previousRank = previousStandings.find(
+		(item) => item.league_member_id === standing.league_member_id,
+	)?.rank;
+	const movement =
+		standing.rank != null && previousRank != null
+			? previousRank - standing.rank
+			: 0;
+
+	if (movement > 0) {
+		return (
+			<span className="flex items-center text-xs font-semibold text-success">
+				<ArrowUp className="size-3" />
+				{movement}
+			</span>
+		);
+	}
+
+	if (movement < 0) {
+		return (
+			<span className="flex items-center text-xs font-semibold text-destructive">
+				<ArrowDown className="size-3" />
+				{Math.abs(movement)}
+			</span>
+		);
+	}
+
+	return (
+		<Minus className="size-3 text-muted-foreground" aria-label="No change" />
+	);
 };
 
-const features = tableFeatures({
-	columnVisibilityFeature,
-	rowSortingFeature,
-	sortedRowModel: createSortedRowModel(),
-	sortFns: {
-		alphanumeric: sortFn_alphanumeric,
-		basic: sortFn_basic,
-	},
-});
-
-type LeaderboardFeatures = typeof features;
-const columnHelper = createColumnHelper<LeaderboardFeatures, LeaderboardRow>();
-
-const columns = columnHelper.columns([
-	columnHelper.accessor("rank", {
-		header: ({ column }) => (
-			<Button
-				variant="ghost"
-				className="px-0"
-				onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-			>
-				Rank <ArrowUpDown className="hidden lg:block" />
-			</Button>
-		),
-		cell: ({ row }) => (
-			<div className="flex items-center gap-2 font-semibold">
-				{row.original.rank ?? "—"}
-				{row.original.rank === 1 && (
-					<Crown className="size-4 text-emerald-700" aria-label="Leader" />
-				)}
-			</div>
-		),
-	}),
-	columnHelper.accessor("teamName", {
-		header: "Team",
-		cell: ({ row }) => (
-			<div>
-				<p className="font-semibold">{row.original.teamName}</p>
-				<p className="text-xs text-muted-foreground">
-					{row.original.managerName}
-				</p>
-			</div>
-		),
-	}),
-	columnHelper.accessor("scoreboard_points", { header: "Score" }),
-	columnHelper.accessor("gross_points", { header: "Gross" }),
-	columnHelper.accessor("transfer_deduction", { header: "Deduction" }),
-	columnHelper.accessor("net_points", { header: "Net" }),
-	columnHelper.accessor("points_on_bench", { header: "Bench" }),
-	columnHelper.accessor("chip_used", {
-		header: "Chip",
-		cell: ({ row }) => row.original.chip_used?.replaceAll("_", " ") ?? "—",
-	}),
-	columnHelper.accessor("eligible", {
-		header: "Status",
-		cell: ({ row }) =>
-			row.original.eligible
-				? "Eligible"
-				: (row.original.ineligibility_label ?? "Ineligible"),
-	}),
-	columnHelper.display({
-		id: "actions",
-		header: () => <div className="text-right">Action</div>,
-		cell: ({ row }) => (
-			<div className="flex justify-end">
-				<Button
-					size="lg"
-					variant="outline"
-					render={
-						<Link
-							to={`/league/${row.original.leagueSlug}/gameweek/${row.original.gameweek}/member/${row.original.league_member_id}`}
-						/>
-					}
-				>
-					View Squad
-				</Button>
-			</div>
-		),
-	}),
-]);
-
-const mobileColumns = new Set(["rank", "teamName", "net_points"]);
-const skeletonColumns = [
-	"rank",
-	"team",
-	"net",
-	"score",
-	"gross",
-	"deduction",
-	"bench",
-	"chip",
-	"status",
-	"action",
-];
-const skeletonRows = ["first", "second", "third", "fourth", "fifth"];
-
-const columnClassName = (columnId: string) => {
-	if (columnId === "rank") return "w-16";
-	if (columnId === "teamName") return "w-auto";
-	if (columnId === "net_points") return "w-20 lg:w-auto";
-	if (columnId === "actions") return "hidden text-right lg:table-cell lg:w-36";
-	return mobileColumns.has(columnId) ? undefined : "hidden lg:table-cell";
+// Takes first two words of the manager's name to create initials
+const ManagerInitials = ({ name }: { name?: string }) => {
+	const initials = name
+		?.split(" ")
+		.slice(0, 2)
+		.map((word) => word[0])
+		.join("")
+		.toUpperCase();
+	return <>{initials ?? "M"}</>;
 };
-
 const GameweekLeaderboard = ({
 	standings = [],
+	previousStandings = [],
 	members = [],
 	currentUserEntryId,
 	leagueSlug = "",
 	gameweek = 0,
 	isLoading = false,
 }: Props) => {
-	const [sorting, setSorting] = useState<SortingState>([]);
-	const [selectedTeam, setSelectedTeam] = useState<LeaderboardRow>();
-	const data = useMemo<LeaderboardRow[]>(
-		() =>
-			standings.map((standing) => {
-				const member = members.find(
-					(item) => item.id === standing.league_member_id,
-				);
-
-				return {
-					...standing,
-					teamName: member?.team_name ?? `Entry ${standing.fpl_entry_id}`,
-					managerName: member?.manager_name ?? "Manager unavailable",
-					leagueSlug,
-					gameweek,
-				};
-			}),
-		[standings, members, leagueSlug, gameweek],
-	);
-	const table = useTable({
-		features,
-		data,
-		columns,
-		onSortingChange: setSorting,
-		state: { sorting },
-	});
+	const navigate = useNavigate();
 
 	if (isLoading) {
 		return (
-			<div className="overflow-hidden rounded-none">
-				<div className="grid grid-cols-[4rem_1fr_5rem] gap-3 border bg-muted p-3 lg:grid-cols-[4rem_repeat(8,1fr)_9rem]">
-					{skeletonColumns.map((column, index) => (
-						<Skeleton
-							key={column}
-							className={index > 2 ? "hidden h-4 lg:block" : "h-4"}
-						/>
+			<div className="overflow-hidden rounded-xl border">
+				<div className="grid grid-cols-[5rem_1fr_6rem] gap-4 border-b bg-muted/40 p-4">
+					{["rank", "manager", "score"].map((column) => (
+						<Skeleton key={column} className="h-4" />
 					))}
 				</div>
-				{skeletonRows.map((row) => (
+				{["first", "second", "third", "fourth", "fifth"].map((row) => (
 					<div
 						key={row}
-						className="grid grid-cols-[4rem_1fr_5rem] items-center gap-3 border-b p-3 lg:grid-cols-[4rem_repeat(8,1fr)_9rem]"
+						className="grid grid-cols-[5rem_1fr_6rem] items-center gap-4 border-b p-4 last:border-0"
 					>
-						{skeletonColumns.map((column, cellIndex) => (
-							<Skeleton
-								key={column}
-								className={cellIndex > 2 ? "hidden h-5 lg:block" : "h-5"}
-							/>
-						))}
+						<Skeleton className="h-5" />
+						<Skeleton className="h-10 w-40 max-w-full" />
+						<Skeleton className="h-5" />
 					</div>
 				))}
 			</div>
@@ -212,78 +108,101 @@ const GameweekLeaderboard = ({
 	}
 
 	return (
-		<div className="overflow-hidden rounded-none">
-			<Table className="table-fixed">
-				<TableHeader className="rounded-t-xl bg-muted [&_th:first-child]:rounded-tl-xl [&_th:last-child]:rounded-tr-xl [&_tr]:border">
-					{table.getHeaderGroups().map((headerGroup) => (
-						<TableRow key={headerGroup.id}>
-							{headerGroup.headers.map((header) => (
-								<TableHead
-									key={header.id}
-									className={columnClassName(header.column.id)}
-								>
-									{header.isPlaceholder ? null : (
-										<table.FlexRender header={header} />
-									)}
-								</TableHead>
-							))}
-						</TableRow>
-					))}
+		<div className="overflow-hidden rounded-xl border bg-card">
+			<Table>
+				<TableHeader className="bg-muted/30">
+					<TableRow className="hover:bg-transparent">
+						<TableHead className="w-28 px-5">#</TableHead>
+						<TableHead>Manager</TableHead>
+						<TableHead className="w-28 px-5 text-right">Score</TableHead>
+					</TableRow>
 				</TableHeader>
 				<TableBody>
-					{table.getRowModel().rows.length ? (
-						table.getRowModel().rows.map((row) => {
-							const isLeader = row.original.rank === 1;
+					{standings.length ? (
+						standings.map((standing) => {
+							const member = members.find(
+								(item) => item.id === standing.league_member_id,
+							);
 							const isCurrentUser =
-								row.original.fpl_entry_id === currentUserEntryId;
+								standing.fpl_entry_id === currentUserEntryId;
+							const isWinner = standing.eligible && standing.rank === 1;
+							const destination = `/league/${leagueSlug}/gameweek/${gameweek}/member/${standing.league_member_id}`;
 
 							return (
 								<TableRow
-									key={row.id}
-									onClick={() => {
-										if (window.matchMedia("(max-width: 1023px)").matches) {
-											setSelectedTeam(row.original);
+									key={standing.league_member_id}
+									tabIndex={0}
+									role="link"
+									onClick={() => navigate(destination)}
+									onKeyDown={(event) => {
+										if (event.key === "Enter" || event.key === " ") {
+											event.preventDefault();
+											navigate(destination);
 										}
 									}}
-									className={`cursor-pointer border-b lg:cursor-default ${
-										isLeader
-											? "bg-emerald-500/15 hover:bg-emerald-500/25"
-											: isCurrentUser
-												? "bg-primary/15 hover:bg-primary/25"
-												: ""
-									}`}
+									className={cn(
+										"h-20 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+										!standing.eligible &&
+											"bg-destructive/10 hover:bg-destructive/15",
+										standing.eligible &&
+											isWinner &&
+											"bg-success/10 hover:bg-success/15",
+										standing.eligible &&
+											!isWinner &&
+											isCurrentUser &&
+											"bg-primary/10 hover:bg-primary/15",
+									)}
 								>
-									{row.getVisibleCells().map((cell) => (
-										<TableCell
-											key={cell.id}
-											className={columnClassName(cell.column.id)}
-										>
-											<table.FlexRender cell={cell} />
-										</TableCell>
-									))}
+									<TableCell className="px-5">
+										<div className="flex items-center gap-2 font-semibold">
+											{isWinner && (
+												<Crown
+													className="size-4 shrink-0 text-success"
+													aria-label="Winner"
+												/>
+											)}
+											<span>{standing.rank ?? "—"}</span>
+											<RankMovement
+												standing={standing}
+												previousStandings={previousStandings}
+											/>
+										</div>
+									</TableCell>
+									<TableCell>
+										<div className="flex flex-row items-center gap-2">
+											<Avatar className="size-12 shrink-0">
+												<AvatarFallback>
+													<ManagerInitials name={member?.manager_name} />
+												</AvatarFallback>
+											</Avatar>
+											<div className="min-w-0">
+												<div className="flex items-center gap-2">
+													<p className="truncate font-semibold">
+														{member?.manager_name ?? "Manager unavailable"}
+													</p>
+												</div>
+												<p className="truncate text-xs text-muted-foreground">
+													{member?.team_name ??
+														`Entry ${standing.fpl_entry_id}`}
+												</p>
+											</div>
+										</div>
+									</TableCell>
+									<TableCell className="px-5 text-right text-base font-semibold">
+										{standing.net_points}
+									</TableCell>
 								</TableRow>
 							);
 						})
 					) : (
 						<TableRow>
-							<TableCell colSpan={columns.length} className="h-24 text-center">
+							<TableCell colSpan={3} className="h-24 text-center">
 								No gameweek results available.
 							</TableCell>
 						</TableRow>
 					)}
 				</TableBody>
 			</Table>
-			<GameweekTeamDialogue
-				open={Boolean(selectedTeam)}
-				onOpenChange={(open) => {
-					if (!open) setSelectedTeam(undefined);
-				}}
-				standing={selectedTeam}
-				teamName={selectedTeam?.teamName}
-				managerName={selectedTeam?.managerName}
-				leagueSlug={leagueSlug}
-				gameweek={gameweek}
-			/>
 		</div>
 	);
 };

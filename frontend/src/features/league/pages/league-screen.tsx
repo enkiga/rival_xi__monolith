@@ -1,19 +1,22 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw, RefreshCwOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useGetMeEndpointApiV1AuthMeGet } from "@/api/auth/auth";
 import {
 	getGetLeagueEndpointApiV1LeaguesSlugGetQueryKey,
+	getGetLeagueGameweekSummaryEndpointApiV1LeaguesSlugGameweeksGameweekSummaryGetQueryOptions,
 	getGetLeaguesEndpointApiV1LeaguesGetQueryKey,
 	useGetLeagueEndpointApiV1LeaguesSlugGet,
 	useGetLeagueGameweekEndpointApiV1LeaguesSlugGameweeksGameweekGet,
-	useGetLeagueGameweekSummaryEndpointApiV1LeaguesSlugGameweeksGameweekSummaryGet,
 	useSyncGameweekEndpointApiV1LeaguesSlugGameweeksGameweekSyncPost,
 } from "@/api/leagues/leagues";
 import {
 	getGetNotificationsEndpointApiV1NotificationsGetQueryKey,
 	getGetUnreadCountEndpointApiV1NotificationsUnreadCountGetQueryKey,
 } from "@/api/notifications/notifications";
+import SectionWrapper from "@/components/reusable/section-wrapper";
+import { Button } from "@/components/ui/button";
 import type { ApiError } from "@/config/api/api-error";
 import type {
 	AuthUserResponse,
@@ -23,10 +26,10 @@ import type {
 } from "@/types/schemas";
 import GameweekLeaderboard from "../components/gameweek-leaderboard";
 import GameweekSelect from "../components/gameweek-select";
-import GameweekSummary from "../components/gameweek-summary";
 import LeagueActivate from "../components/league-activate";
 import LeagueHeader from "../components/league-header";
 import LeagueMembershipPending from "../components/league-membership-pending";
+import { Card } from "@/components/ui/card";
 
 const unwrapResponse = <T,>(response: T | { data: T }): T =>
 	"data" in (response as { data?: T })
@@ -52,12 +55,11 @@ const LeagueScreen = () => {
 
 	if (leagueQuery.isPending) {
 		return (
-			<section className="flex flex-col gap-6 py-8">
+			<SectionWrapper className="flex flex-col gap-6 py-8">
 				<LeagueHeader isLoading />
 				<GameweekSelect isLoading />
-				<GameweekSummary isLoading />
 				<GameweekLeaderboard isLoading />
-			</section>
+			</SectionWrapper>
 		);
 	}
 
@@ -78,17 +80,19 @@ const LeagueScreen = () => {
 	}
 
 	return (
-		<section className="flex flex-col gap-6 py-8">
-			<LeagueHeader data={leagueQuery.data} />
+		<SectionWrapper className="flex flex-col gap-6 py-8">
 			{String(leagueQuery.data.status).toLowerCase() === "draft" ? (
-				<LeagueActivate league={leagueQuery.data} />
+				<>
+					<LeagueHeader data={leagueQuery.data} />
+					<LeagueActivate league={leagueQuery.data} />
+				</>
 			) : (
 				<LeagueGameweeks
 					league={leagueQuery.data}
 					requestedGameweek={gameweek}
 				/>
 			)}
-		</section>
+		</SectionWrapper>
 	);
 };
 
@@ -129,14 +133,40 @@ const LeagueGameweeks = ({
 					unwrapResponse(response as unknown as LeagueGameweekResponse),
 			},
 		});
-	const summaryQuery =
-		useGetLeagueGameweekSummaryEndpointApiV1LeaguesSlugGameweeksGameweekSummaryGet<
-			LeagueGameweekSummaryResponse,
+	const startedGameweeks = Array.from(
+		{
+			length: Math.max(
+				0,
+				league.current_gameweek - league.rules.start_gameweek + 1,
+			),
+		},
+		(_, index) => league.rules.start_gameweek + index,
+	);
+	const gameweekSummaryQueries = useQueries({
+		queries: startedGameweeks.map((startedGameweek) =>
+			getGetLeagueGameweekSummaryEndpointApiV1LeaguesSlugGameweeksGameweekSummaryGetQueryOptions<
+				LeagueGameweekSummaryResponse,
+				ApiError
+			>(league.slug, startedGameweek, {
+				query: {
+					select: (response) =>
+						unwrapResponse(
+							response as unknown as LeagueGameweekSummaryResponse,
+						),
+					staleTime: Number.POSITIVE_INFINITY,
+				},
+			}),
+		),
+	});
+	const previousStandingsQuery =
+		useGetLeagueGameweekEndpointApiV1LeaguesSlugGameweeksGameweekGet<
+			LeagueGameweekResponse,
 			ApiError
-		>(league.slug, gameweek, {
+		>(league.slug, gameweek - 1, {
 			query: {
+				enabled: gameweek > league.rules.start_gameweek,
 				select: (response) =>
-					unwrapResponse(response as unknown as LeagueGameweekSummaryResponse),
+					unwrapResponse(response as unknown as LeagueGameweekResponse),
 			},
 		});
 	const syncMutation =
@@ -146,15 +176,21 @@ const LeagueGameweeks = ({
 		(member) =>
 			member.role === "OWNER" && member.fpl_entry_id === currentEntryId,
 	);
-	const resultsMissing =
-		standingsQuery.error?.status === 404 || summaryQuery.error?.status === 404;
+	const resultsMissing = standingsQuery.error?.status === 404;
 	const queryError =
-		standingsQuery.error?.status !== 404
-			? standingsQuery.error
-			: summaryQuery.error?.status !== 404
-				? summaryQuery.error
-				: undefined;
-	const status = standingsQuery.data?.status;
+		standingsQuery.error?.status !== 404 ? standingsQuery.error : undefined;
+	const pointsByGameweek = Object.fromEntries(
+		startedGameweeks.map((startedGameweek, index) => [
+			startedGameweek,
+			gameweekSummaryQueries[index]?.data?.current_user_score ?? null,
+		]),
+	);
+	const statusByGameweek = Object.fromEntries(
+		startedGameweeks.map((startedGameweek, index) => [
+			startedGameweek,
+			gameweekSummaryQueries[index]?.data?.status,
+		]),
+	);
 	const leaguePath = `/league/${league.slug}`;
 
 	useEffect(() => {
@@ -228,17 +264,35 @@ const LeagueGameweeks = ({
 	};
 
 	return (
-		<div className="flex flex-col gap-6">
+		<SectionWrapper className="flex flex-col gap-6">
+			<LeagueHeader
+				data={league}
+				gameweek={gameweek}
+				gameweekStatus={statusByGameweek[gameweek]}
+			/>
 			<GameweekSelect
 				gameweek={gameweek}
 				startGameweek={league.rules.start_gameweek}
 				currentGameweek={league.current_gameweek}
-				status={status}
-				isOwner={isOwner}
-				isSyncing={syncMutation.isPending}
+				pointsByGameweek={pointsByGameweek}
+				statusByGameweek={statusByGameweek}
 				onChange={selectGameweek}
-				onSync={() => void syncGameweek()}
 			/>
+			{isOwner && (
+				<div className="flex justify-end">
+					<Button
+						size="lg"
+						type="button"
+						onClick={() => void syncGameweek()}
+						disabled={syncMutation.isPending}
+					>
+						<RefreshCw
+							className={syncMutation.isPending ? "animate-spin" : undefined}
+						/>
+						{syncMutation.isPending ? "Syncing..." : "Sync gameweek"}
+					</Button>
+				</div>
+			)}
 
 			{syncMutation.isError && (
 				<p className="text-sm text-destructive" role="alert">
@@ -251,28 +305,42 @@ const LeagueGameweeks = ({
 				</p>
 			)}
 
-			{standingsQuery.isPending || summaryQuery.isPending ? (
-				<>
-					<GameweekSummary isLoading />
-					<GameweekLeaderboard isLoading />
-				</>
+			{standingsQuery.isPending ? (
+				<GameweekLeaderboard isLoading />
 			) : resultsMissing ? (
-				<div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-					Results have not been synced for gameweek {gameweek}.
-				</div>
-			) : standingsQuery.data && summaryQuery.data ? (
-				<>
-					<GameweekSummary summary={summaryQuery.data} />
-					<GameweekLeaderboard
-						standings={standingsQuery.data.standings}
-						members={league.members}
-						currentUserEntryId={currentEntryId}
-						leagueSlug={league.slug}
-						gameweek={gameweek}
-					/>
-				</>
+				<Card className="px-4 border border-dashed border-fpl-pink flex flex-col lg:items-center text-center p-6">
+					<div className="bg-primary/50 p-4 rounded-full mx-auto">
+						<RefreshCwOff />
+					</div>
+					<h3 className="text-3xl font-semibold">Results not synced</h3>
+					<p className="text-sm text-muted-foreground">
+						Results have not been synced for gameweek {gameweek}.
+					</p>
+					{isOwner && (
+						<Button
+							size="lg"
+							type="button"
+							onClick={() => void syncGameweek()}
+							disabled={syncMutation.isPending}
+						>
+							<RefreshCw
+								className={syncMutation.isPending ? "animate-spin" : undefined}
+							/>
+							{syncMutation.isPending ? "Syncing..." : "Sync gameweek"}
+						</Button>
+					)}
+				</Card>
+			) : standingsQuery.data ? (
+				<GameweekLeaderboard
+					standings={standingsQuery.data.standings}
+					previousStandings={previousStandingsQuery.data?.standings}
+					members={league.members}
+					currentUserEntryId={currentEntryId}
+					leagueSlug={league.slug}
+					gameweek={gameweek}
+				/>
 			) : null}
-		</div>
+		</SectionWrapper>
 	);
 };
 

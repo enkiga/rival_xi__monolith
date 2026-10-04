@@ -1,84 +1,105 @@
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
+import {
+	Carousel,
+	type CarouselApi,
+	CarouselContent,
+	CarouselItem,
+	CarouselNext,
+	CarouselPrevious,
+} from "@/components/ui/carousel";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import type { GameweekResultStatus } from "@/types/schemas";
 
 type Props = {
 	gameweek?: number;
 	startGameweek?: number;
 	currentGameweek?: number;
-	status?: string;
-	isOwner?: boolean;
-	isSyncing?: boolean;
+	pointsByGameweek?: Record<number, number | null>;
+	statusByGameweek?: Record<number, GameweekResultStatus | undefined>;
 	isLoading?: boolean;
 	onChange?: (gameweek: number) => void;
-	onSync?: () => void;
 };
 
 const GameweekSelect = ({
 	gameweek = 0,
 	startGameweek = 0,
 	currentGameweek = 0,
-	status,
-	isOwner,
-	isSyncing,
+	pointsByGameweek = {},
+	statusByGameweek = {},
 	isLoading = false,
 	onChange = () => undefined,
-	onSync = () => undefined,
-}: Props) =>
-	isLoading ? (
-		<div className="flex flex-col gap-3">
-			<div className="flex items-center gap-3">
-				<Skeleton className="size-9" />
-				<Skeleton className="mx-auto h-7 w-36" />
-				<Skeleton className="size-9" />
-			</div>
-			<Skeleton className="ml-auto h-10 w-36" />
-		</div>
-	) : (
-		<div className="flex flex-col items-center gap-3">
-			<div className="flex w-full items-center gap-3">
-				<Button
-					type="button"
-					size="icon-lg"
-					variant="outline"
-					disabled={gameweek <= startGameweek}
-					onClick={() => onChange(gameweek - 1)}
-					aria-label="Previous gameweek"
-				>
-					<ChevronLeft />
-				</Button>
-
-				<p className="flex flex-1 items-center justify-center gap-2 px-6 text-center text-lg font-semibold">
-					Gameweek {gameweek}
-					{status === "LIVE" && (
-						<span className="flex items-center gap-1.5 text-xs font-medium text-success">
-							<span className="size-2 animate-pulse rounded-full bg-success" />
-							Live
-						</span>
-					)}
-				</p>
-
-				<Button
-					type="button"
-					size="icon-lg"
-					variant="outline"
-					disabled={gameweek >= currentGameweek}
-					onClick={() => onChange(gameweek + 1)}
-					aria-label="Next gameweek"
-				>
-					<ChevronRight />
-				</Button>
-			</div>
-
-			<div className="flex w-full flex-col lg:ml-auto lg:w-fit">
-				{isOwner && (
-					<Button size="lg" type="button" onClick={onSync} disabled={isSyncing}>
-						<RefreshCw className={isSyncing ? "animate-spin" : undefined} />
-						{isSyncing ? "Syncing..." : "Sync gameweek"}
-					</Button>
-				)}
-			</div>
-		</div>
+}: Props) => {
+	const [api, setApi] = useState<CarouselApi>();
+	const gameweeks = Array.from(
+		{ length: 38 - startGameweek + 1 },
+		(_, index) => startGameweek + index,
 	);
+
+	useEffect(() => {
+		if (!api || !gameweek) return;
+		api.scrollTo(Math.max(0, gameweek - startGameweek), true);
+	}, [api, gameweek, startGameweek]);
+
+	if (isLoading) {
+		return (
+			<div className="flex gap-4 rounded-xl border p-4">
+				{["one", "two", "three", "four", "five"].map((item) => (
+					<Skeleton key={item} className="h-20 min-w-32 flex-1" />
+				))}
+			</div>
+		);
+	}
+
+	return (
+		<Carousel
+			setApi={setApi}
+			opts={{ align: "center", containScroll: "trimSnaps" }}
+			className="px-0 lg:px-16 py-6"
+		>
+			<CarouselContent className="-ml-3">
+				{gameweeks.map((item) => {
+					const isFuture = item > currentGameweek;
+					const isSelected = item === gameweek;
+					const status = statusByGameweek[item];
+
+					return (
+						<CarouselItem
+							key={item}
+							className="basis-1/4 pl-3 sm:basis-1/6 lg:basis-1/10"
+						>
+							<button
+								type="button"
+								disabled={isFuture}
+								onClick={() => onChange(item)}
+								aria-current={isSelected ? "true" : undefined}
+								className={cn(
+									"flex h-20 w-full flex-col items-center justify-center gap-1 rounded-xl border bg-background px-3 transition-colors",
+									"hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-40 bg-card",
+									isSelected &&
+										"border-primary ring-2 ring-primary/30 hover:border-primary",
+								)}
+							>
+								<span className="text-base font-semibold">GW{item}</span>
+								{status === "LIVE" ? (
+									<span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+										<span className="size-2 rounded-full bg-success" />
+										Live
+									</span>
+								) : status === "FINAL" && pointsByGameweek[item] != null ? (
+									<span className="text-sm text-muted-foreground">
+										{pointsByGameweek[item]} pts
+									</span>
+								) : null}
+							</button>
+						</CarouselItem>
+					);
+				})}
+			</CarouselContent>
+			<CarouselPrevious className="hidden lg:flex lg:left-0.5 size-10 rounded-xl" />
+			<CarouselNext className="hidden lg:flex lg:right-0.5 size-10 rounded-xl" />
+		</Carousel>
+	);
+};
 
 export default GameweekSelect;
