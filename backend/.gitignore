@@ -41,6 +41,12 @@ coverage.json
 # Interactive Python sessions
 .ipynb_checkpoints/
 .ipython/
+.python_history
+
+# Profiling and benchmark output
+*.prof
+*.lprof
+.benchmarks/
 
 # Local runtime artifacts
 *.log
