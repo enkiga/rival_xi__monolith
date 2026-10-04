@@ -6,7 +6,7 @@ import {
 	useActivateLeagueEndpointApiV1LeaguesSlugActivatePatch,
 } from "@/api/leagues/leagues";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import type { ApiError } from "@/config/api/api-error";
 import LeagueDialog from "@/features/home/components/league-dialog";
 import {
@@ -15,6 +15,7 @@ import {
 	LeagueMemberRole,
 	LeagueStatus,
 } from "@/types/schemas";
+import { CircleDashed } from "lucide-react";
 
 type Props = {
 	league: LeagueDetailResponse;
@@ -61,30 +62,30 @@ const LeagueActivate = ({ league }: Props) => {
 	}
 
 	return (
-		<Card className="border border-dotted border-primary/60 bg-primary/5 shadow-none ring-0">
-			<CardContent className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-				<div>
-					<p className="font-semibold">This league is still a draft</p>
-					<p className="text-sm text-muted-foreground">
-						Review the league settings, then activate it when you are ready.
-					</p>
-				</div>
-				<div className="flex w-full gap-2 sm:w-auto">
-					<LeagueDialog league={league} />
-					<Button
+		
+		<Card className="px-4 border border-dashed border-fpl-pink flex flex-col lg:items-center text-center p-6">
+			<div className="bg-primary/50 p-4 rounded-full mx-auto">
+				<CircleDashed />
+			</div>
+			<h3 className="text-3xl font-semibold">Draft League</h3>
+			<p className="text-sm text-muted-foreground">
+				Review the league settings, then activate it when you are ready.
+			</p>
+			<div className="flex flex-col lg:flex-row lg:items-center justify-center w-full gap-2 ">
+				<LeagueDialog league={league} />
+				<Button
 					size="lg"
-						disabled={activateLeague.isPending}
-						onClick={() => activateLeague.mutate({ slug: league.slug })}
-					>
-						{activateLeague.isPending ? "Activating..." : "Activate league"}
-					</Button>
-				</div>
-				{activateLeague.error && (
-					<p className="w-full text-sm text-destructive" role="alert">
-						{activateLeague.error.message}
-					</p>
-				)}
-			</CardContent>
+					disabled={activateLeague.isPending}
+					onClick={() => activateLeague.mutate({ slug: league.slug })}
+				>
+					{activateLeague.isPending ? "Activating..." : "Activate league"}
+				</Button>
+			</div>
+			{activateLeague.error && (
+				<p className="w-full text-sm text-destructive" role="alert">
+					{activateLeague.error.message}
+				</p>
+			)}
 		</Card>
 	);
 };
