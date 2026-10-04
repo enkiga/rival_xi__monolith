@@ -1,7 +1,5 @@
-import { useEffect, useState } from "react";
 import {
 	Carousel,
-	type CarouselApi,
 	CarouselContent,
 	CarouselItem,
 	CarouselNext,
@@ -30,16 +28,10 @@ const GameweekSelect = ({
 	isLoading = false,
 	onChange = () => undefined,
 }: Props) => {
-	const [api, setApi] = useState<CarouselApi>();
 	const gameweeks = Array.from(
 		{ length: 38 - startGameweek + 1 },
 		(_, index) => startGameweek + index,
 	);
-
-	useEffect(() => {
-		if (!api || !gameweek) return;
-		api.scrollTo(Math.max(0, gameweek - startGameweek), true);
-	}, [api, gameweek, startGameweek]);
 
 	if (isLoading) {
 		return (
@@ -53,7 +45,10 @@ const GameweekSelect = ({
 
 	return (
 		<Carousel
-			setApi={setApi}
+			scrollToIndex={
+				gameweek ? Math.max(0, gameweek - startGameweek) : undefined
+			}
+			aria-label="Gameweeks"
 			opts={{ align: "center", containScroll: "trimSnaps" }}
 			className="px-0 lg:px-16 py-6"
 		>
