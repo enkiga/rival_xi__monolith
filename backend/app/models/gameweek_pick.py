@@ -73,6 +73,11 @@ class GameweekPick(Base):
         nullable=False,
     )
 
+    kit_url: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
     player_position: Mapped[str] = mapped_column(
         String(20),
         nullable=False,

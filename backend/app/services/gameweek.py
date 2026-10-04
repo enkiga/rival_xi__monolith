@@ -5,10 +5,12 @@ from app.core.cache import (
     set_cached_model,
 )
 from app.integrations.fpl.client import (
+    FPLUpstreamError,
     get_bootstrap_static,
     get_cached_bootstrap_static,
     get_event_live,
 )
+from app.integrations.fpl.kit_assets import get_fpl_kit_url_from_bootstrap
 from app.models.fpl_account import FPLAccount
 from app.models.gameweek_pick import GameweekPick
 from app.models.gameweek_result import (
@@ -401,6 +403,7 @@ async def sync_league_gameweek(
                     team_id=pick.team_id,
                     team_name=pick.team_name,
                     team_short_name=(pick.team_short_name),
+                    kit_url=pick.kit_url,
                     player_position=(pick.player_position.value),
                     squad_position=(pick.squad_position),
                     is_starter=(pick.is_starter),
@@ -907,7 +910,7 @@ async def get_member_gameweek(
         MemberGameweekResponse,
     )
 
-    if cached is not None:
+    if cached is not None and all(pick.kit_url for pick in cached.picks):
         return cached
 
     rows = await _get_gameweek_result_rows(
@@ -953,6 +956,17 @@ async def get_member_gameweek(
 
     picks = picks_result.scalars().all()
 
+    bootstrap = None
+
+    if any(pick.kit_url is None for pick in picks):
+        bootstrap = await get_cached_bootstrap_static()
+
+        if bootstrap is None:
+            try:
+                bootstrap = await get_bootstrap_static()
+            except FPLUpstreamError:
+                bootstrap = None
+
     response = MemberGameweekResponse(
         league_member_id=member_id,
         fpl_entry_id=standing.fpl_entry_id,
@@ -977,6 +991,20 @@ async def get_member_gameweek(
                 team_id=pick.team_id,
                 team_name=pick.team_name,
                 team_short_name=(pick.team_short_name),
+                kit_url=(
+                    pick.kit_url
+                    or (
+                        get_fpl_kit_url_from_bootstrap(
+                            bootstrap=bootstrap,
+                            team_id=pick.team_id,
+                            player_position=FPLPlayerPosition(
+                                pick.player_position
+                            ),
+                        )
+                        if bootstrap is not None
+                        else None
+                    )
+                ),
                 player_position=(FPLPlayerPosition(pick.player_position)),
                 squad_position=(pick.squad_position),
                 is_starter=pick.is_starter,

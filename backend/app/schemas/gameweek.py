@@ -101,6 +101,7 @@ class GameweekPickResponse(BaseModel):
     team_id: int
     team_name: str
     team_short_name: str
+    kit_url: str | None
 
     player_position: FPLPlayerPosition
 
