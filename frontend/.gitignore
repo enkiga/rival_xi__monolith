@@ -14,6 +14,7 @@ dist-ssr
 
 # Vite, TypeScript, and package manager caches
 .vite/
+.vite-temp/
 *.tsbuildinfo
 .eslintcache
 .cache/
