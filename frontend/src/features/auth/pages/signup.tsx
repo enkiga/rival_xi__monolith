@@ -1,14 +1,16 @@
 import { useState } from "react";
+import { signInContent } from "../components/content";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { requestOtpEndpointApiV1AuthOtpRequestPost } from "@/api/auth/auth";
+import heroImage from "@/assets/hero.png";
 import AppForm from "@/components/reusable/form/app-form";
 import type { FormFieldConfig } from "@/components/reusable/form/types";
-
-import { Card } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { ApiError } from "@/config/api/api-error";
 import type { OTPRequest } from "@/types/schemas";
 import AuthWrapper from "../components/auth-wrapper";
+import PanelContent from "../components/panel-content";
 
 const OTP_EMAIL_STORAGE_KEY = "rivalxi_otp_email";
 
@@ -46,14 +48,29 @@ const SignupPage = () => {
 	};
 
 	return (
-		<AuthWrapper>
-			<Card className="w-full max-w-md p-6 rounded-none">
-				<div className="flex flex-col space-y-2 items-center mb-3">
-					<h1 className="text-xl font-bold text-card-foreground">
-						Welcome to Rival XI
+		<AuthWrapper
+			className="flex min-h-144 flex-col justify-between gap-6"
+			panelContent={
+				<PanelContent
+					title={signInContent.title}
+					description={signInContent.description}
+					features={signInContent.features}
+				/>
+			}
+		>
+			<div className="flex flex-col gap-6">
+				<div className="mb-3 flex flex-col space-y-2">
+					<img
+						src={heroImage}
+						alt="RivalXI"
+						className="mx-auto w-40 md:hidden"
+					/>
+					<h1 className="text-center text-3xl font-semibold text-card-foreground md:text-start">
+						Sign in to Rival XI
 					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Enter your email and we&apos;ll send you a verification code.
+					<p className="mx-auto mt-2 max-w-2xs text-center text-sm text-muted-foreground md:mx-0 md:max-w-full md:text-start">
+						Enter your email and we&apos;ll send you a verification code to sign
+						in.
 					</p>
 				</div>
 				<AppForm
@@ -70,7 +87,13 @@ const SignupPage = () => {
 						) : null
 					}
 				/>
-			</Card>
+			</div>
+			<div>
+				<Separator className="my-4" />
+				<p className="text-center text-sm text-muted-foreground md:text-start">
+					By signing in, you agree to our Terms of Service and Privacy Policy.
+				</p>
+			</div>
 		</AuthWrapper>
 	);
 };
