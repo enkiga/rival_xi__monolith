@@ -1,222 +1,109 @@
 # RivalXI
 
-Docker Compose runs the FastAPI backend and Redis. PostgreSQL is external; the
-frontend will be added later.
+Private Fantasy Premier League competitions where each gameweek is its own contest.
 
-Backend image files live in `backend/Dockerfile` and `backend/.dockerignore`.
-Compose uses `backend/` as the build context, so only backend build inputs are
-sent to Docker. Shared Compose files stay at the repository root because they
-configure the full stack. Backend environment files and their template live in
-`backend/`, leaving room for the frontend to own its environment separately.
-Run Compose commands from the root.
+## Overview
 
-## Prerequisites
+RivalXI is a portfolio-stage web application for FPL managers who want a smaller, more deliberate competition than a season-long public league. A manager signs in by email, claims their official FPL team, and creates or joins an invite-only league of up to 20 people.
 
-- Docker Engine with Docker Compose v2 or newer, or Docker Desktop (running).
-- An accessible PostgreSQL database and its connection URL.
-- Run the commands below from the repository root.
+League owners choose when scoring starts, whether transfer costs count, and which chips are allowed. After activation, RivalXI imports official FPL picks and points, applies those league rules, and produces a gameweek leaderboard with drill-down squad views.
 
-## Development
+The project includes a React progressive web app, a FastAPI API, PostgreSQL persistence, Redis-backed caching and rate limiting, transactional email, and scheduled gameweek synchronization.
 
-Run Docker Compose from the **repository root**, not from `backend/`. If your
-terminal is currently in `backend/`, move up first:
+## The problem
 
-```sh
-cd ..
+The standard FPL season rewards consistency across 38 gameweeks. That format is not always a good fit for a group that starts late, wants short feedback loops, or wants house rules around transfer hits and chips. Running that competition by hand means repeatedly collecting scores, checking eligibility, and rebuilding a table.
+
+RivalXI turns those recurring checks into explicit league rules and recalculates the competition from official FPL data.
+
+## The approach
+
+- **Passwordless onboarding** — Email one-time codes create a session, then the manager searches for and permanently claims one FPL team.
+- **Private league ownership** — Owners configure a draft league, share a reusable invitation link, review applicants, and activate the competition.
+- **Rule-aware weekly scoring** — Every gameweek records gross points, transfer deductions, the displayed score, chip use, and eligibility.
+- **League and squad views** — Members see the weekly table and the player picks behind each result, including captain multipliers and club kits.
+- **Notifications** — In-app events cover membership decisions, rule changes, deadlines, and gameweek winners; membership decisions also send email.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Sign in by email] --> B[Find and claim an FPL team]
+    B --> C[Create a league or follow an invite]
+    C --> D[Owner approves members and activates]
+    D --> E[RivalXI imports official FPL gameweek data]
+    E --> F[League rules produce rankings and squad views]
 ```
 
-The development environment file is `backend/.env`. Create it from the backend
-template if it is missing:
+FPL Rivals is used only to discover candidate manager IDs. Official Fantasy Premier League data remains authoritative for validation, picks, points, deadlines, and results.
 
-```sh
-test -f backend/.env || cp backend/.env.example backend/.env
+## An interesting engineering decision: persisting rule-aware results
+
+An FPL score is not necessarily a RivalXI score. A league may ignore transfer costs, or mark a manager ineligible for using a prohibited chip. Reading the upstream API directly on every page would also make historical tables depend on a currently available third party.
+
+The backend therefore normalizes an FPL gameweek, applies league rules, and persists both the inputs and the resulting scoreboard value. The core decision is intentionally small:
+
+```python
+chip_allowed = chip_used is None or chip_used.value in allowed_chips
+scoreboard_points = (
+    fpl_gameweek.net_points
+    if rules.include_transfer_deductions
+    else fpl_gameweek.gross_points
+)
 ```
 
-Edit `backend/.env` and set `DATABASE_URL` to a real database using the
-`postgresql+asyncpg://user:password@host:5432/database` format. Direct backend
-runs read this file automatically, regardless of the working directory. Docker
-Compose reads the same file and passes the backend's settings into the container;
-the file itself is not mounted or copied into the image.
+Persisted results keep gross, net, and displayed points alongside eligibility, so the UI can explain a ranking rather than only show a total. Syncs are repeatable, cached responses are invalidated after writes, and final gameweeks receive a longer cache lifetime. The trade-off is operational: the scheduler currently runs inside the API process, so deployments must use a single backend worker to avoid duplicate scheduled jobs.
 
-Set `AUTH_OTP_SECRET` to a long random secret in `backend/.env`;
-generate one with `python3 -c "import secrets; print(secrets.token_hex(32))"`.
-Keep the value stable across container restarts. Compose requires it for backend
-commands, including Alembic, because migrations import the backend settings.
-For local HTTP development, set `AUTH_COOKIE_SECURE=false`; use `true` with
-production HTTPS.
+## Architecture
 
-Set `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, and optionally `BREVO_SENDER_NAME` in
-the same backend environment file to enable OTP and notification email delivery.
-The sender address must be registered and verified in Brevo. Compose passes the
-complete file to the backend while retaining the container-specific database and
-Redis overrides. Do not commit a real API key.
+```mermaid
+flowchart TB
+    UI[React + Vite PWA] -->|cookie-authenticated JSON| API[FastAPI]
+    API --> DB[(PostgreSQL)]
+    API --> Redis[(Redis cache and rate limits)]
+    API --> FPL[Official FPL endpoints]
+    API --> Search[FPL Rivals search]
+    API --> Email[Brevo transactional email]
+    Scheduler[In-process APScheduler] --> API
+```
 
-For PostgreSQL running on your computer, use `localhost` in `DATABASE_URL` for
-direct runs and set `DOCKER_DATABASE_URL` with the same credentials and database
-but `host.docker.internal` as the hostname. Compose passes that override as the
-container's `DATABASE_URL`. For a database hostname reachable from both the host
-and containers, omit `DOCKER_DATABASE_URL` and use only `DATABASE_URL`. On Linux,
-Compose adds this hostname through `host-gateway`; PostgreSQL must listen on an
-interface reachable from Docker and allow connections from the Docker subnet.
-`localhost` inside a container refers to that container.
+The browser never receives third-party credentials. The API owns authentication, league permissions, FPL normalization, scoring, persistence, and integration failure handling. See [Architecture](docs/architecture.md) for the request and synchronization flows.
 
-Build, apply migrations, and start:
+## Technology
+
+- **Frontend:** React 19, TypeScript, Vite, React Router, TanStack Query, Tailwind CSS, PWA support
+- **Backend:** Python 3.12, FastAPI, Pydantic, SQLAlchemy asyncio, Alembic, APScheduler
+- **Data:** PostgreSQL and Redis
+- **External services:** official FPL web endpoints, FPL Rivals manager search, Brevo transactional email
+- **Tooling and tests:** uv, Bun, Biome, Python `unittest`, Docker Compose
+
+## Project status
+
+RivalXI is an actively developed portfolio MVP. The main sign-in, onboarding, league, invitation, scoring, squad, and notification flows are implemented. It is not yet presented as a production-ready hosted service: PostgreSQL and frontend hosting are external to the included Compose deployment, the upstream FPL interfaces have no supported public developer contract, and the in-process scheduler limits the backend to one worker/container.
+
+## Documentation
+
+- [Installation](docs/installation.md)
+- [Configuration](docs/configuration.md)
+- [Architecture](docs/architecture.md)
+- [Domain rules](docs/domain-rules.md)
+- [External integrations](docs/integrations.md)
+- [API guide](docs/api.md)
+- [Testing](docs/testing.md)
+- [Deployment](docs/deployment.md)
+- [Commit conventions](docs/commit-rules.md)
+
+## Running locally
+
+Copy the environment templates, configure PostgreSQL and Brevo, then run the backend/Redis stack and the frontend:
 
 ```sh
-docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml build --pull
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
 docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml run --rm --no-deps backend alembic upgrade head
-docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml up -d --wait
+docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml up -d --build --wait
+bun install --cwd frontend --frozen-lockfile
+bun run --cwd frontend dev
 ```
 
-To stay in `backend/` instead, prefix every root file path with `../`:
-
-```sh
-docker compose --env-file .env -f ../compose.yaml -f ../compose.dev.yaml build --pull
-docker compose --env-file .env -f ../compose.yaml -f ../compose.dev.yaml run --rm --no-deps backend alembic upgrade head
-docker compose --env-file .env -f ../compose.yaml -f ../compose.dev.yaml up -d --wait
-```
-
-An error about a missing environment file means its path is being resolved from
-the current working directory. Use the matching command set above.
-
-- API documentation: http://localhost:8000/docs
-- Application health: http://localhost:8000/api/v1/health
-- Database connectivity: http://localhost:8000/api/v1/health/db
-- Redis connectivity: http://localhost:8000/api/v1/health/redis
-
-Changes under `backend/app` trigger automatic reload. Application and migration
-directories are mounted read-only; the container's dependencies stay separate
-from your local virtual environment. After changing `backend/pyproject.toml` or
-`backend/uv.lock`, rebuild with `up -d --build --wait` using the same Compose flags.
-Keep the lockfile in sync with `uv lock` when editing dependencies.
-
-## Production
-
-```sh
-cp backend/.env.example backend/.env.prod
-```
-
-Keep `backend/.env.prod` with the backend and edit it with production credentials
-and an external PostgreSQL hostname. Set `BACKEND_ENV_FILE=./backend/.env.prod`
-inside it. Remove the example `DOCKER_DATABASE_URL`
-override so Compose uses the production `DATABASE_URL`, or set both deliberately.
-Use a separate database from development. Environment files are ignored by Git
-and excluded from the image; restrict access to them on the deployment host.
-They supply container environment variables at runtime, so Docker administrators
-can inspect them.
-
-```sh
-docker compose --env-file backend/.env.prod -f compose.yaml -f compose.prod.yaml build --pull
-docker compose --env-file backend/.env.prod -f compose.yaml -f compose.prod.yaml run --rm --no-deps backend alembic upgrade head
-docker compose --env-file backend/.env.prod -f compose.yaml -f compose.prod.yaml up -d --wait
-```
-
-The production API defaults to http://127.0.0.1:8001. Put a TLS reverse proxy in
-front of it for public access. `BACKEND_BIND_ADDRESS` and `BACKEND_PORT` override
-the published address and port. The localhost default works with a proxy on the
-Docker host; a containerized proxy needs a shared network configured separately.
-Set `FORWARDED_ALLOW_IPS` to the exact IP or CIDR of that trusted proxy so Uvicorn
-can supply the real client address to authentication rate limits. Keep the
-loopback-only default until the proxy address is known; never use `*` while the
-backend can be reached directly by untrusted clients.
-
-Production runs the image's bundled source without reload or source mounts,
-with a non-root backend user, a read-only backend filesystem, temporary `/tmp`
-storage, dropped backend capabilities, bounded logs, and automatic restart after
-process exit or Docker restart. Health checks report unhealthy containers; Docker
-Compose does not restart a container solely because its health check fails.
-
-Migrations are an explicit deployment step, not an automatic startup action.
-For updates, assess migration compatibility with the running application and back
-up your database before applying schema changes.
-
-The backend currently starts its gameweek scheduler inside the API process.
-Keep **one backend container with one worker** per environment to avoid duplicate
-scheduled jobs. Dev and prod have separate Compose project names, ports, networks,
-and Redis volumes, so they can run together when given separate databases.
-
-## Running the backend directly
-
-Use `backend/.env`. With uv installed, run these commands from the repository
-root:
-
-```sh
-uv run --directory backend alembic upgrade head
-uv run --directory backend uvicorn app.main:app --reload
-```
-
-Settings resolve `backend/.env` relative to the settings module, so running from
-`backend/` also works. Exported environment variables take precedence. Compose
-and Uvicorn keys such as `BACKEND_PORT`, `DOCKER_DATABASE_URL`, and
-`FORWARDED_ALLOW_IPS` are ignored by application settings. Direct runs load
-`backend/.env`; production Compose selects `backend/.env.prod` explicitly.
-
-When adding a backend setting, define it in `Settings` and document it in
-`backend/.env.example`. Compose loads the complete backend environment file and
-overrides only container-specific connection addresses.
-
-## Redis
-
-Redis is available to the backend at `redis://redis:6379/0`, supplied as
-`REDIS_URL`. Compose overrides the backend file's host-side Redis URL so backend
-caching can reach the Redis service over the Docker network.
-
-Redis has no published host port and uses an internal Docker network shared only
-with the backend. This configuration relies on network isolation rather than a
-Redis password. It is intended for a trusted, single-host Compose deployment.
-Append-only persistence writes to a separate named volume per environment.
-Back up those volumes if Redis begins storing data that must be retained.
-
-```sh
-docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml exec redis redis-cli ping
-```
-
-Expected output: `PONG`.
-
-## Common commands
-
-These examples target development. For production, replace `backend/.env` with
-`backend/.env.prod` and `compose.dev.yaml` with `compose.prod.yaml`.
-
-```sh
-# Check service status.
-docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml ps
-
-# Follow backend logs.
-docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml logs -f backend
-
-# Stop and remove containers; preserve Redis data.
-docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml down
-
-# Validate configuration without starting services.
-docker compose --env-file backend/.env -f compose.yaml -f compose.dev.yaml config --quiet
-```
-
-Adding `--volumes` to `down` deletes that instance's Redis data. PostgreSQL remains
-external and is unaffected. Use both Compose files in every command: `compose.yaml`
-contains shared services, while the second file selects the environment.
-
-The image installs locked production dependencies with uv in a separate build
-stage. Python and Redis use explicit release-series tags, and uv uses an exact
-version; tags can receive upstream updates. Rebuild regularly with `--pull` and
-validate before deployment. For deployments requiring immutable base images, pin
-reviewed image digests and maintain an update process.
-
-The backend uses Python 3.12 on Alpine 3.24, with distro package updates applied
-in a shared base stage for both dependency installation and runtime. Alpine uses
-musl rather than glibc; when adding native Python dependencies, verify their
-Linux wheels support this base. To pick up new security fixes even when Docker
-has cached the package-update layer, rebuild and scan the resulting image:
-
-```sh
-docker compose --env-file backend/.env.prod -f compose.yaml -f compose.prod.yaml build --pull --no-cache backend
-docker scout cves --only-severity critical,high rivalxi-prod-backend
-```
-
-Dockerfile editor warnings describe the upstream `FROM` image. They can still
-show findings fixed by later package updates; scan the built backend image to
-check what will actually run. A clean scan is a point-in-time result, so repeat
-it when rebuilding and deploying.
-
-Build conventions follow the [Docker build guidance](https://docs.docker.com/build/building/best-practices/)
-and [uv Docker integration guide](https://docs.astral.sh/uv/guides/integration/docker/).
+The complete clean-machine setup, including database requirements and verification, is in [Installation](docs/installation.md).
