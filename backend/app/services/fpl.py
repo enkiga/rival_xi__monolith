@@ -4,6 +4,7 @@ from app.integrations.fpl.client import (
     get_event_live,
     get_fpl_entry,
 )
+from app.integrations.fpl.kit_assets import get_fpl_kit_url
 from app.models.league_rules import FPLChip
 from app.schemas.fpl import (
     FPLGameweekPickResponse,
@@ -232,6 +233,10 @@ async def get_fpl_gameweek(
                 team_id=team["id"],
                 team_name=team["name"],
                 team_short_name=team["short_name"],
+                kit_url=get_fpl_kit_url(
+                    team_code=team["code"],
+                    player_position=player_position,
+                ),
                 player_position=(player_position),
                 squad_position=(squad_position),
                 is_starter=(squad_position <= 11),

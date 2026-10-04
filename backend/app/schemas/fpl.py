@@ -25,6 +25,7 @@ class FPLGameweekPickResponse(BaseModel):
     team_id: int
     team_name: str
     team_short_name: str
+    kit_url: str
 
     player_position: FPLPlayerPosition
 
