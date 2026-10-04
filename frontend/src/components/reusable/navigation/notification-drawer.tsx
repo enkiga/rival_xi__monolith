@@ -88,7 +88,11 @@ const NotificationDrawer = () => {
 		<Drawer swipeDirection="right" open={open} onOpenChange={setOpen}>
 			<DrawerTrigger
 				render={
-					<Button size="icon-lg" variant="outline" aria-label="Open notifications">
+					<Button
+						size="icon-lg"
+						variant="outline"
+						aria-label="Open notifications"
+					>
 						<span className="relative">
 							<Bell />
 							{unreadCount > 0 && (

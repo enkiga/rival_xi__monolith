@@ -15,7 +15,9 @@ const UserAvatar = ({ userName }: Props) => {
 
 	return (
 		<Avatar>
-			<AvatarFallback className="bg-foreground text-background rounded-sm border border-primary-foreground">{userInitial}</AvatarFallback>
+			<AvatarFallback className="bg-foreground text-background rounded-sm border border-primary-foreground">
+				{userInitial}
+			</AvatarFallback>
 		</Avatar>
 	);
 };
