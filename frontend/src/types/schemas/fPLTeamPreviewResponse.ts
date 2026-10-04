@@ -11,4 +11,6 @@ export interface FPLTeamPreviewResponse {
   manager_name: string;
   available: boolean;
   linked_to_current_user: boolean;
+  overall_points?: number | null;
+  overall_rank?: number | null;
 }

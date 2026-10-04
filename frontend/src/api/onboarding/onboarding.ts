@@ -5,27 +5,179 @@
  * OpenAPI spec version: 0.1.0
  */
 import {
-  useMutation
+  useMutation,
+  useQuery
 } from '@tanstack/react-query';
 import type {
+  DataTag,
+  DefinedInitialDataOptions,
+  DefinedUseQueryResult,
   MutationFunction,
   QueryClient,
+  QueryFunction,
+  QueryKey,
+  UndefinedInitialDataOptions,
   UseMutationOptions,
-  UseMutationResult
+  UseMutationResult,
+  UseQueryOptions,
+  UseQueryResult
 } from '@tanstack/react-query';
 
 import type {
+  FPLManagerSearchResponse,
   FPLTeamClaimRequest,
   FPLTeamClaimResponse,
   FPLTeamLookupRequest,
   FPLTeamPreviewResponse,
-  HTTPValidationError
+  HTTPValidationError,
+  SearchFplManagersEndpointApiV1OnboardingFplSearchGetParams
 } from '../../types/schemas';
 
 import { apiFetch } from '../../config/api/api-client';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+
+
+const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKey: K } => {
+  const result = { queryKey } as T & { queryKey: K };
+  for (const key of Object.keys(query)) {
+    // The explicit queryKey always wins, matching the previous
+    // `{ ...query, queryKey }` spread where it was set last.
+    if (key === 'queryKey') continue;
+    Object.defineProperty(result, key, {
+      enumerable: true,
+      configurable: true,
+      get: () => (query as Record<string, unknown>)[key],
+    });
+  }
+  return result;
+};
+
+export type searchFplManagersEndpointApiV1OnboardingFplSearchGetResponse200 = {
+  data: FPLManagerSearchResponse
+  status: 200
+}
+
+export type searchFplManagersEndpointApiV1OnboardingFplSearchGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type searchFplManagersEndpointApiV1OnboardingFplSearchGetResponseSuccess = (searchFplManagersEndpointApiV1OnboardingFplSearchGetResponse200) & {
+  headers: Headers;
+};
+export type searchFplManagersEndpointApiV1OnboardingFplSearchGetResponseError = (searchFplManagersEndpointApiV1OnboardingFplSearchGetResponse422) & {
+  headers: Headers;
+};
+
+export type searchFplManagersEndpointApiV1OnboardingFplSearchGetResponse = (searchFplManagersEndpointApiV1OnboardingFplSearchGetResponseSuccess | searchFplManagersEndpointApiV1OnboardingFplSearchGetResponseError)
+
+export const getSearchFplManagersEndpointApiV1OnboardingFplSearchGetUrl = (params: SearchFplManagersEndpointApiV1OnboardingFplSearchGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/onboarding/fpl/search?${stringifiedParams}` : `/api/v1/onboarding/fpl/search`
+}
+
+/**
+ * @summary Search Fpl Managers Endpoint
+ */
+export const searchFplManagersEndpointApiV1OnboardingFplSearchGet = async (params: SearchFplManagersEndpointApiV1OnboardingFplSearchGetParams, options?: Parameters<typeof apiFetch>[1]): Promise<searchFplManagersEndpointApiV1OnboardingFplSearchGetResponse> => {
+
+  return apiFetch<searchFplManagersEndpointApiV1OnboardingFplSearchGetResponse>(getSearchFplManagersEndpointApiV1OnboardingFplSearchGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSearchFplManagersEndpointApiV1OnboardingFplSearchGetQueryKey = (params?: SearchFplManagersEndpointApiV1OnboardingFplSearchGetParams,) => {
+    return [
+    `/api/v1/onboarding/fpl/search`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getSearchFplManagersEndpointApiV1OnboardingFplSearchGetQueryOptions = <TData = Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>, TError = HTTPValidationError>(params: SearchFplManagersEndpointApiV1OnboardingFplSearchGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSearchFplManagersEndpointApiV1OnboardingFplSearchGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>> = ({ signal }) => searchFplManagersEndpointApiV1OnboardingFplSearchGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type SearchFplManagersEndpointApiV1OnboardingFplSearchGetQueryResult = NonNullable<Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>>
+export type SearchFplManagersEndpointApiV1OnboardingFplSearchGetQueryError = HTTPValidationError
+
+
+export function useSearchFplManagersEndpointApiV1OnboardingFplSearchGet<TData = Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>, TError = HTTPValidationError>(
+ params: SearchFplManagersEndpointApiV1OnboardingFplSearchGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>,
+          TError,
+          Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useSearchFplManagersEndpointApiV1OnboardingFplSearchGet<TData = Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>, TError = HTTPValidationError>(
+ params: SearchFplManagersEndpointApiV1OnboardingFplSearchGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>,
+          TError,
+          Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useSearchFplManagersEndpointApiV1OnboardingFplSearchGet<TData = Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>, TError = HTTPValidationError>(
+ params: SearchFplManagersEndpointApiV1OnboardingFplSearchGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Search Fpl Managers Endpoint
+ */
+
+export function useSearchFplManagersEndpointApiV1OnboardingFplSearchGet<TData = Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>, TError = HTTPValidationError>(
+ params: SearchFplManagersEndpointApiV1OnboardingFplSearchGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof searchFplManagersEndpointApiV1OnboardingFplSearchGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getSearchFplManagersEndpointApiV1OnboardingFplSearchGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
 
 
 
