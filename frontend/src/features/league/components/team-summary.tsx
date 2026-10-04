@@ -1,5 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import type { MemberGameweekResponse } from "@/types/schemas";
 
 type Props = {
@@ -7,54 +8,59 @@ type Props = {
 	isLoading?: boolean;
 };
 
-const summarySkeletons = ["net", "bench", "transfers"];
+const summarySkeletons = [
+	"gross",
+	"deduction",
+	"net",
+	"transfers",
+	"bench",
+	"chip",
+];
 
 const TeamSummary = ({ data, isLoading = false }: Props) => {
 	if (isLoading) {
 		return (
-			<div className="flex gap-4">
+			<Card className="grid grid-cols-2 gap-y-6 p-6 sm:grid-cols-3 lg:grid-cols-6">
 				{summarySkeletons.map((item) => (
-					<Card key={item} className="flex-1 rounded-none text-center">
-						<CardHeader className="justify-items-center">
-							<Skeleton className="h-4 w-20" />
-						</CardHeader>
-						<CardContent className="flex justify-center">
-							<Skeleton className="h-8 w-12" />
-						</CardContent>
-					</Card>
+					<div key={item} className="flex flex-col items-center gap-2">
+						<Skeleton className="h-8 w-12" />
+						<Skeleton className="h-4 w-20" />
+					</div>
 				))}
-			</div>
+			</Card>
 		);
 	}
 
 	if (!data) return null;
 
 	const summaries = [
+		{ label: `GW${data.gameweek} points`, value: data.gross_points },
+		{ label: "Transfer deduction", value: data.transfer_deduction },
 		{ label: "Net points", value: data.net_points },
-		{ label: "Bench points", value: data.points_on_bench },
 		{ label: "Transfers made", value: data.transfers_made },
+		{ label: "Points on bench", value: data.points_on_bench },
+		{ label: "Chip used", value: data.chip_used ?? "None" },
 	];
 
 	return (
-		<section className="flex flex-col gap-4">
-			<div className="flex gap-4">
-				{summaries.map((summary) => (
-					<Card
-						key={summary.label}
-						className="text-center rounded-none flex-1 flex flex-col justify-between"
-					>
-						<CardHeader className="justify-items-center">
-							<CardTitle className="text-sm text-muted-foreground">
-								{summary.label}
-							</CardTitle>
-						</CardHeader>
-						<CardContent className="text-center">
-							<p className="text-2xl font-bold">{summary.value}</p>
-						</CardContent>
-					</Card>
-				))}
-			</div>
-		</section>
+		<Card className="grid grid-cols-2 gap-y-6 p-6 sm:grid-cols-3 lg:grid-cols-6">
+			{summaries.map((summary, index) => (
+				<div
+					key={summary.label}
+					className={cn(
+						"flex min-w-0 flex-col items-center justify-center border-l px-2 text-center",
+						index % 2 === 0 && "border-l-0 sm:border-l",
+						index % 3 === 0 && "sm:border-l-0 lg:border-l",
+						index === 0 && "lg:border-l-0",
+					)}
+				>
+					<p className="text-2xl font-bold">{summary.value}</p>
+					<p className="mt-1 text-xs text-muted-foreground sm:text-sm">
+						{summary.label}
+					</p>
+				</div>
+			))}
+		</Card>
 	);
 };
 

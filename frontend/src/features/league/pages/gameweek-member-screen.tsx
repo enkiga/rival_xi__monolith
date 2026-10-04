@@ -4,6 +4,7 @@ import {
 	useGetLeagueEndpointApiV1LeaguesSlugGet,
 	useGetMemberGameweekEndpointApiV1LeaguesSlugGameweeksGameweekMembersMemberIdGet,
 } from "@/api/leagues/leagues";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ApiError } from "@/config/api/api-error";
@@ -11,8 +12,10 @@ import type {
 	LeagueDetailResponse,
 	MemberGameweekResponse,
 } from "@/types/schemas";
+import BenchCard from "../components/bench-card";
 import TeamFieldView from "../components/team-field-view";
 import TeamSummary from "../components/team-summary";
+import SectionWrapper from "@/components/reusable/section-wrapper";
 
 const unwrapResponse = <T,>(response: T | { data: T }): T =>
 	"data" in (response as { data?: T })
@@ -64,15 +67,18 @@ const GameweekMemberScreen = () => {
 	if (leagueQuery.isPending || memberQuery.isPending) {
 		return (
 			<section className="flex flex-col gap-6 py-8">
-				<header className="flex items-center gap-4 border-b border-muted-foreground pb-4">
-					<Skeleton className="size-9" />
-					<div className="space-y-2">
-						<Skeleton className="h-7 w-48" />
-						<Skeleton className="h-4 w-32" />
+				<Skeleton className="h-10 w-24" />
+				<div className="grid gap-6 lg:grid-cols-3">
+					<div className="flex flex-col gap-6 lg:col-span-2">
+						<header className="flex items-center gap-4">
+							<Skeleton className="size-14 rounded-full" />
+							<Skeleton className="h-7 w-48" />
+						</header>
+						<TeamSummary isLoading />
+						<TeamFieldView isLoading />
 					</div>
-				</header>
-				<TeamSummary isLoading />
-				<TeamFieldView isLoading />
+					<Skeleton className="min-h-80" />
+				</div>
 			</section>
 		);
 	}
@@ -89,36 +95,60 @@ const GameweekMemberScreen = () => {
 		(item) => item.id === memberIdNumber,
 	);
 
+	if (!member) {
+		return (
+			<p className="text-sm text-destructive" role="alert">
+				The league member could not be found.
+			</p>
+		);
+	}
+
+	const initials = member.manager_name
+		.split(" ")
+		.filter(Boolean)
+		.slice(0, 2)
+		.map((word) => word[0])
+		.join("")
+		.toUpperCase();
+
 	return (
-		<section className="flex flex-col gap-6 py-8">
-			<header className="flex items-center gap-4 border-b border-muted-foreground pb-4">
+		<SectionWrapper className="flex flex-col gap-6 py-8">
+			<Link to={`/league/${slug}/gameweek/${gameweekNumber}`}>
 				<Button
-					size="icon-lg"
+					size="lg"
 					variant="outline"
-					render={<Link to={`/league/${slug}/gameweek/${gameweekNumber}`} />}
+					className="mt-2 flex cursor-pointer items-center gap-2"
 				>
 					<ArrowLeft />
-					<span className="sr-only">Back to league</span>
+					Back
 				</Button>
-				<div className="min-w-0">
-					<h1 className="text-base font-semibold lg:text-2xl lg:font-bold">
-						{leagueQuery.data.name}
-					</h1>
-					<div className="flex flex-wrap items-center gap-2">
-						<p className="text-sm text-muted-foreground">
-							{member?.team_name ?? `Entry ${memberQuery.data.fpl_entry_id}`}
-							<span className="px-1.5" aria-hidden="true">
-								·
-							</span>
-							GWK{memberQuery.data.gameweek}
-						</p>
-					</div>
-				</div>
-			</header>
+			</Link>
 
-			<TeamSummary data={memberQuery.data} />
-			<TeamFieldView picks={memberQuery.data.picks} />
-		</section>
+			<div className="grid gap-6 lg:grid-cols-3 lg:items-start">
+				<div className="flex min-w-0 flex-col gap-6 lg:col-span-2">
+					<header className="flex items-center gap-4">
+						<Avatar className="size-14 shrink-0 border-0 after:border-0 sm:size-16">
+							<AvatarFallback className="bg-primary/60 text-lg font-semibold">
+								{initials}
+							</AvatarFallback>
+						</Avatar>
+						<h1 className="truncate text-xl font-semibold sm:text-2xl">
+							{member.manager_name}
+						</h1>
+					</header>
+
+					<TeamSummary data={memberQuery.data} />
+					<TeamFieldView picks={memberQuery.data.picks} />
+				</div>
+
+				<aside className="lg:pt-55">
+					<BenchCard
+						picks={memberQuery.data.picks}
+						points={memberQuery.data.points_on_bench}
+					/>
+				</aside>
+			</div>
+		</SectionWrapper>
 	);
 };
 
