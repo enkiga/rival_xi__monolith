@@ -1,7 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useGetMeEndpointApiV1AuthMeGet } from "@/api/auth/auth";
 import Navbar from "@/components/reusable/navigation/navbar";
-import SectionWrapper from "@/components/reusable/section-wrapper";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ApiError } from "@/config/api/api-error";
 import InvitationDialogue from "@/features/invitation/components/invitation-dialogue";
@@ -23,7 +22,7 @@ const MainLayout = () => {
 
 	if (userQuery.isPending) {
 		return (
-			<SectionWrapper className="flex min-h-dvh flex-col gap-8 py-5">
+			<section className="flex min-h-dvh flex-col gap-8 py-5">
 				<div className="flex items-center justify-between">
 					<Skeleton className="h-10 w-32" />
 					<div className="flex gap-2">
@@ -32,7 +31,7 @@ const MainLayout = () => {
 					</div>
 				</div>
 				<Skeleton className="h-48 w-full" />
-			</SectionWrapper>
+			</section>
 		);
 	}
 
@@ -42,11 +41,11 @@ const MainLayout = () => {
 		}
 
 		return (
-			<SectionWrapper className="flex min-h-dvh items-center justify-center">
+			<section className="flex min-h-dvh items-center justify-center">
 				<p className="text-sm text-destructive" role="alert">
 					{userQuery.error.message}
 				</p>
-			</SectionWrapper>
+			</section>
 		);
 	}
 
@@ -55,13 +54,13 @@ const MainLayout = () => {
 	}
 
 	return (
-		<SectionWrapper className="flex min-h-dvh w-screen flex-col">
+		<section className="flex min-h-dvh w-screen flex-col">
 			<Navbar user={userQuery.data} />
-			<SectionWrapper className="mt-20">
+			<section className="mt-6 lg:mt-10">
 				<Outlet context={{ user: userQuery.data }} />
-			</SectionWrapper>
+			</section>
 			<InvitationDialogue />
-		</SectionWrapper>
+		</section>
 	);
 };
 

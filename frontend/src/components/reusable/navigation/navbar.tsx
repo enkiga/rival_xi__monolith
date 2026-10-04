@@ -11,13 +11,13 @@ type Props = {
 
 const Navbar = ({ user }: Props) => {
 	return (
-		<section className="bg-primary fixed top-0 w-full left-0 right-0 z-100">
-			<SectionWrapper className="flex items-center justify-between p-5">
+		<section className="bg-background fixed top-0 w-full left-0 right-0 z-100">
+			<SectionWrapper className="flex items-center justify-between p-2">
 				<Link to="/">
-					<img src={heroImage} alt="Hero" className="h-10 w-auto" />
+					<img src={heroImage} alt="Hero" className="h-10 lg:h-14 w-auto" />
 				</Link>
 
-				<div className="flex space-x-2">
+				<div className="flex flex-row gap-2">
 					<NotificationDrawer />
 					<ProfileMenu user={user} />
 				</div>
