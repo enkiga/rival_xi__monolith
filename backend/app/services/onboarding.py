@@ -1,9 +1,11 @@
 import re
 
+from app.integrations.fpl_rivals.client import search_fpl_managers
 from app.models.fpl_account import (
     FPLAccount,
 )
 from app.schemas.onboarding import (
+    FPLManagerSearchResponse,
     FPLTeamClaimResponse,
     FPLTeamPreviewResponse,
 )
@@ -37,6 +39,23 @@ class FPLAccountAlreadyLinkedError(Exception):
 
 class FPLAccountClaimConflictError(Exception):
     pass
+
+
+class InvalidFPLManagerSearchQueryError(Exception):
+    pass
+
+
+async def search_fpl_manager_candidates(
+    query: str,
+) -> FPLManagerSearchResponse:
+    query = query.strip()
+
+    if len(query) < 3 or len(query) > 100:
+        raise InvalidFPLManagerSearchQueryError
+
+    return FPLManagerSearchResponse(
+        results=await search_fpl_managers(query),
+    )
 
 
 def extract_fpl_entry_id(
@@ -124,6 +143,8 @@ async def preview_fpl_team(
         linked_to_current_user=(
             linked_to_current_user
         ),
+        overall_points=manager.overall_points,
+        overall_rank=manager.overall_rank,
     )
 
 

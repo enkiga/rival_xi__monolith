@@ -1,9 +1,15 @@
+import logging
+
 from app.api.dependencies.auth import (
     get_current_auth,
 )
 from app.db.session import get_db
 from app.integrations.fpl.client import FPLUpstreamError
+from app.integrations.fpl_rivals.client import (
+    FPLManagerSearchUpstreamError,
+)
 from app.schemas.onboarding import (
+    FPLManagerSearchResponse,
     FPLTeamClaimRequest,
     FPLTeamClaimResponse,
     FPLTeamLookupRequest,
@@ -17,14 +23,17 @@ from app.services.onboarding import (
     FPLAccountClaimConflictError,
     FPLAccountTakenError,
     FPLTeamNotFoundError,
+    InvalidFPLManagerSearchQueryError,
     InvalidFPLReferenceError,
     claim_fpl_team,
     preview_fpl_team,
+    search_fpl_manager_candidates,
 )
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     status,
 )
 from sqlalchemy.ext.asyncio import (
@@ -32,6 +41,37 @@ from sqlalchemy.ext.asyncio import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+@router.get(
+    "/fpl/search",
+    response_model=FPLManagerSearchResponse,
+)
+async def search_fpl_managers_endpoint(
+    q: str = Query(min_length=3, max_length=100),
+    auth: AuthenticatedSession = Depends(  # noqa: B008
+        get_current_auth
+    ),
+) -> FPLManagerSearchResponse:
+    try:
+        return await search_fpl_manager_candidates(q)
+
+    except InvalidFPLManagerSearchQueryError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Enter at least 3 characters",
+        )
+
+    except FPLManagerSearchUpstreamError:
+        logger.warning(
+            "Manager search upstream failed",
+            extra={"query_length": len(q.strip())},
+        )
+        return FPLManagerSearchResponse(
+            results=[],
+            search_available=False,
+        )
 
 
 @router.post(

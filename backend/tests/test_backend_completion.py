@@ -5,9 +5,20 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import httpx
 
 from app.api.dependencies.auth import get_current_auth
 from app.api.v1.fpl import router as fpl_router
+from app.api.v1.onboarding import router as onboarding_router
+from app.integrations.fpl_rivals import client as fpl_rivals_client
+from app.integrations.fpl_rivals.client import (
+    FPLManagerSearchUpstreamError,
+    search_fpl_managers,
+)
+from app.schemas.onboarding import (
+    FPLManagerSearchResponse,
+    FPLManagerSearchResult,
+)
 from app.integrations.fpl.client import FPLUpstreamError
 from app.main import app
 from app.services import gameweek
@@ -153,3 +164,186 @@ class OnboardingReferenceTests(TestCase):
     def test_invalid_reference_is_rejected(self):
         with self.assertRaises(InvalidFPLReferenceError):
             extract_fpl_entry_id("not-an-entry")
+
+
+class ManagerSearchClientTests(IsolatedAsyncioTestCase):
+    async def asyncTearDown(self):
+        await fpl_rivals_client.close_fpl_rivals_client()
+
+    async def test_provider_results_are_normalized(self):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.url.params["q"], "Kevin Garoli")
+            self.assertEqual(request.url.params["type"], "manager")
+            self.assertEqual(request.url.params["limit"], "7")
+
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "managers": [
+                            {
+                                "id": 4250337,
+                                "player_name": "Kevin Garoli",
+                                "entry_name": "Rival XI",
+                            }
+                        ]
+                    }
+                },
+            )
+
+        fpl_rivals_client._http_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://example.test",
+        )
+
+        self.assertEqual(
+            await search_fpl_managers("Kevin Garoli"),
+            [
+                FPLManagerSearchResult(
+                    entry_id=4250337,
+                    manager_name="Kevin Garoli",
+                    team_name="Rival XI",
+                )
+            ],
+        )
+
+    async def test_malformed_provider_result_is_unavailable(self):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={"data": {"managers": [{"id": "invalid"}]}},
+            )
+
+        fpl_rivals_client._http_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://example.test",
+        )
+
+        with self.assertRaises(FPLManagerSearchUpstreamError):
+            await search_fpl_managers("Kevin Garoli")
+
+    async def test_no_provider_results_returns_empty_list(self):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": {"managers": []}})
+
+        fpl_rivals_client._http_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://example.test",
+        )
+
+        self.assertEqual(await search_fpl_managers("Unknown"), [])
+
+    async def test_provider_results_are_capped_at_seven(self):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "managers": [
+                            {
+                                "id": entry_id,
+                                "player_name": f"Manager {entry_id}",
+                                "entry_name": f"Team {entry_id}",
+                            }
+                            for entry_id in range(1, 9)
+                        ]
+                    }
+                },
+            )
+
+        fpl_rivals_client._http_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://example.test",
+        )
+
+        results = await search_fpl_managers("Manager")
+
+        self.assertEqual(len(results), 7)
+
+    async def test_provider_timeout_is_unavailable(self):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("Timed out", request=request)
+
+        fpl_rivals_client._http_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://example.test",
+        )
+
+        with self.assertRaises(FPLManagerSearchUpstreamError):
+            await search_fpl_managers("Kevin Garoli")
+
+    async def test_provider_http_failure_is_unavailable(self):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429)
+
+        fpl_rivals_client._http_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://example.test",
+        )
+
+        with self.assertRaises(FPLManagerSearchUpstreamError):
+            await search_fpl_managers("Kevin Garoli")
+
+
+class ManagerSearchRouteTests(TestCase):
+    def setUp(self):
+        self.api = FastAPI()
+        self.api.include_router(onboarding_router, prefix="/onboarding")
+        self.client = TestClient(self.api)
+
+    def test_search_requires_authentication(self):
+        response = self.client.get("/onboarding/fpl/search?q=Kevin")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_short_query_is_rejected(self):
+        self.api.dependency_overrides[get_current_auth] = lambda: SimpleNamespace(
+            user_id=1
+        )
+
+        response = self.client.get("/onboarding/fpl/search?q=Ke")
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_authenticated_search_succeeds(self):
+        self.api.dependency_overrides[get_current_auth] = lambda: SimpleNamespace(
+            user_id=1
+        )
+
+        result = FPLManagerSearchResponse(
+            results=[
+                FPLManagerSearchResult(
+                    entry_id=4250337,
+                    manager_name="Kevin Garoli",
+                    team_name="Rival XI",
+                )
+            ]
+        )
+
+        with patch(
+            "app.api.v1.onboarding.search_fpl_manager_candidates",
+            new=AsyncMock(return_value=result),
+        ):
+            response = self.client.get(
+                "/onboarding/fpl/search?q=Kevin%20Garoli"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), result.model_dump())
+
+    def test_provider_failure_degrades_to_manual_fallback(self):
+        self.api.dependency_overrides[get_current_auth] = lambda: SimpleNamespace(
+            user_id=1
+        )
+
+        with patch(
+            "app.api.v1.onboarding.search_fpl_manager_candidates",
+            new=AsyncMock(side_effect=FPLManagerSearchUpstreamError),
+        ):
+            response = self.client.get("/onboarding/fpl/search?q=Kevin")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"results": [], "search_available": False},
+        )
