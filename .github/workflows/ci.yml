@@ -75,3 +75,13 @@ jobs:
 
       - name: Build
         run: bun run build
+
+  deploy:
+    name: Deploy to DigitalOcean
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deployment placeholder
+        run: echo "CI passed. Ready to deploy."
