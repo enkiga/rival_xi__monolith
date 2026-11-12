@@ -1,57 +1,57 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
-  "vcs": {
-    "enabled": true,
-    "clientKind": "git",
-    "useIgnoreFile": true
-  },
-  "files": {
-    "ignoreUnknown": false,
-    "includes": ["src/**/*", "vite.config.ts"]
-  },
-  "formatter": {
-    "enabled": true,
-    "indentStyle": "tab"
-  },
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "preset": "recommended",
-      "correctness": {
-        "useExhaustiveDependencies": "warn",
-        "useHookAtTopLevel": "error"
-      },
-      "nursery": {
-        "useReactCompiler": "error"
-      },
-      "suspicious": {
-        "noUnknownAtRules": {
-          "level": "warn",
-          "options": {
-            "ignore": ["custom-variant"]
-          }
-        }
-      }
-    }
-  },
-  "javascript": {
-    "formatter": {
-      "quoteStyle": "double"
-    },
-    "jsxRuntime": "transparent",
-    "globals": ["window", "document", "navigator", "console"]
-  },
-  "css": {
-    "parser": {
-      "tailwindDirectives": true
-    }
-  },
-  "assist": {
-    "enabled": true,
-    "actions": {
-      "source": {
-        "organizeImports": "on"
-      }
-    }
-  }
+	"$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"ignoreUnknown": false,
+		"includes": ["src/**/*", "!src/api", "!src/types/schemas", "vite.config.ts"]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab"
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			"correctness": {
+				"useExhaustiveDependencies": "warn",
+				"useHookAtTopLevel": "error"
+			},
+			"nursery": {
+				"useReactCompiler": "error"
+			},
+			"suspicious": {
+				"noUnknownAtRules": {
+					"level": "warn",
+					"options": {
+						"ignore": ["custom-variant"]
+					}
+				}
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double"
+		},
+		"jsxRuntime": "transparent",
+		"globals": ["window", "document", "navigator", "console"]
+	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		}
+	},
+	"assist": {
+		"enabled": true,
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
+		}
+	}
 }
