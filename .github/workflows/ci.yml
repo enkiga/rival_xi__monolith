@@ -117,11 +117,12 @@ jobs:
 
           echo "SSH configuration is valid"
 
-      - name: Verify SSH access
+      - name: Deploy to DigitalOcean
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
           ssh -o BatchMode=yes \
               -o StrictHostKeyChecking=yes \
@@ -129,4 +130,4 @@ jobs:
               -i ~/.ssh/id_ed25519 \
               -p "$SSH_PORT" \
               "$SSH_USER@$SSH_HOST" \
-              whoami
+              "sudo -n -u enkiga /usr/local/bin/rivalxi-deploy $DEPLOY_SHA"
