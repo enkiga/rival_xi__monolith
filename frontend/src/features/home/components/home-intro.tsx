@@ -49,7 +49,7 @@ const HomeIntroSection = () => {
 					<div className="flex flex-col gap-1.5">
 						<h2 className="text-3xl font-semibold">Your Rival XI Leagues</h2>
 						<p className="text-sm text-muted-foreground">
-							Manage and track your Rival XI leagues all in one place.
+							Manage and track all your Rival XI leagues in one place.
 						</p>
 					</div>
 					<LeagueDialog />
