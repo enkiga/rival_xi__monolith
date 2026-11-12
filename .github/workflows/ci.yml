@@ -94,14 +94,39 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
 
+      - name: Validate SSH configuration
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          [[ "$SSH_HOST" == "134.122.113.141" ]] || {
+            echo "SSH_HOST does not match the expected IP"
+            exit 1
+          }
+
+          [[ "$SSH_USER" == "deploy" ]] || {
+            echo "SSH_USER is incorrect"
+            exit 1
+          }
+
+          [[ "$SSH_PORT" == "22" ]] || {
+            echo "SSH_PORT is incorrect"
+            exit 1
+          }
+
+          echo "SSH configuration is valid"
+
       - name: Verify SSH access
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
         run: |
           ssh -o BatchMode=yes \
               -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=15 \
+              -i ~/.ssh/id_ed25519 \
               -p "$SSH_PORT" \
-              "deploy@$SSH_HOST" \
+              "$SSH_USER@$SSH_HOST" \
               whoami
