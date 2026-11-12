@@ -17,6 +17,11 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+      REDIS_URL: redis://localhost:6379/0
+      AUTH_OTP_SECRET: ci-test-secret
+      GAMEWEEK_SYNC_INTERVAL_MINUTES: 5
     defaults:
       run:
         working-directory: backend
@@ -28,10 +33,11 @@ jobs:
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
+          working-directory: backend
           version: 0.12.11
           python-version: "3.12"
           enable-cache: true
-          cache-dependency-glob: backend/uv.lock
+          cache-dependency-glob: uv.lock
 
       - name: Install dependencies
         run: uv sync --locked
